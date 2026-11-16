@@ -25,7 +25,8 @@ inline bool begin() {
   delay(50);
   if (!panel()->begin()) return false;
   panel()->fillScreen(0x0000);
-  panel()->setBrightness(128);
+  // Note: Arduino_GFX* has no setBrightness() method.
+  // Brightness will be implemented via a board-specific validated API.
   return true;
 }
 inline void diagnosticPattern() {
