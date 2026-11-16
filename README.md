@@ -1,35 +1,32 @@
-# Stach — ESP32-S3 AMOLED project (early prototype)
+# Stach — Stage 1: Foundation
 
-A minimalist two-eye companion inspired by the Pip-KeyPet concept, targeted at the **Waveshare ESP32-S3 Touch AMOLED 1.43-inch**.
+Early ESP32-S3 **network-only** prototype for the Waveshare 1.43-inch AMOLED project. **Not a validated board firmware.**
 
-## Current status
+## Design requirements
+Black background, two white eyes with black pupils, battery at top; no clock, mouth, blush or decorative elements. Eye-only emotions. Wi-Fi QR pairing and BLE mouse are planned future stages.
 
-**Prototype, NOT a complete firmware port.** This repository currently implements an ESP32-S3 Wi-Fi access point, per-device persistent random password, browser control panel, and an emotion-control API. It does **not yet** drive the Waveshare AMOLED display, draw the QR code on the device, read battery percentage, or animate the physical eyes. The HTML face is only a browser preview.
+## Current implementation
+- WPA2 Wi-Fi AP with device-specific SSID and 16-character random hexadecimal password persisted in NVS
+- Wi-Fi QR **payload** printed to serial (QR matrix is NOT displayed on the AMOLED)
+- Phone web UI at `http://192.168.4.1` and emotion API
+- Portable core module with unit tests and GitHub Actions workflow
 
-## Design specification
+## Tests
+Run `sh tools/test_core.sh` on a machine with a C++17 compiler. `pio run` builds the network-only firmware with PlatformIO; CI will attempt both tests and build after workflow is uploaded to GitHub. Local hardware validation has NOT been performed.
 
-- Main screen: pure black, exactly two white eyes with black pupils, battery indicator at top.
-- No clock, mouth, blush, cheeks, hearts, or decorative elements.
-- Animations and emotion states should alter the eyes only.
-- Product name: Stach.
-- QR onboarding: a Wi-Fi QR code on the device for joining the Stach AP; then browse to `http://192.168.4.1`.
-- A second QR code with the portal URL may be provided for convenience. Scanning a Wi-Fi QR code does not automatically open the browser on all phones.
+## Security notes
+Wi-Fi credentials are printed to USB serial for initial setup; avoid sharing serial logs. Local HTTP API is accessible to clients joined to the Stach Wi-Fi network. No cloud services or remote internet control. QR scan only joins Wi-Fi; open the URL separately.
 
-## Build prototype
+## Future work
+Waveshare-specific display, touch, QMI8658, battery, actual QR rendering and Bluetooth HID are NOT implemented in Stage 1. Do not flash this generic profile as a final Waveshare firmware.
 
-Install VS Code + PlatformIO. Open this directory and run `pio run`. The generic ESP32-S3 board profile is for initial **network-side development only**; verify Waveshare-specific flash, PSRAM, USB, power and display settings before flashing a real device.
+Inspired by [NovikovVisuals/Pip-KeyPet](https://github.com/NovikovVisuals/Pip-KeyPet); no upstream source or assets copied.
 
-On first boot the serial console prints the unique Wi-Fi SSID, password and Wi-Fi QR payload. Connect a phone to the SSID and open `http://192.168.4.1`. `/api/status` returns state and `POST /api/expression?value=angry` changes the stored expression in RAM.
+## Verification record (2026-11-16)
 
-## Required next hardware work
+- Portable core: 25 assertions passed with system C++17 compiler.
+- Firmware build: **not verified locally** because PlatformIO and ESP32 packages are not available in the offline execution environment. GitHub Actions is configured to build on push.
+- Physical hardware: not available, no hardware validation.
+- GitHub publication: connector returned HTTP 403 for writes. The ZIP is the authoritative Stage 1 delivery until uploaded.
 
-1. Confirm Waveshare's exact 1.43-inch display revision and vendor example project.
-2. Port the vendor's AMOLED QSPI panel initialization, LVGL flush callback and backlight/power controls.
-3. Implement 466x466 eye renderer and animations; connect the expression API to rendering.
-4. Render the `qrPayload` string as an actual QR image on the AMOLED screen using a QR library.
-5. Integrate touch, battery ADC/PMIC and charging-state measurement using documented board drivers.
-6. Validate display, touch, battery, sleep/wake and QR scanning on physical hardware.
-
-## Attribution
-
-Inspired by [NovikovVisuals/Pip-KeyPet](https://github.com/NovikovVisuals/Pip-KeyPet). This prototype contains no copied Pip-KeyPet source code or graphic assets. Check upstream license and preserve notices if later importing code/assets.
+The stage 1 scope is network foundation only; it is **not** a complete Waveshare firmware.
