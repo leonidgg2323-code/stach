@@ -10,6 +10,7 @@ int main() {
  CHECK(parseEmotion("sleepy") == Emotion::Sleepy);
  CHECK(parseEmotion("curious") == Emotion::Curious);
  CHECK(parseEmotion("ANGRY") == Emotion::Invalid);
+ CHECK(parseEmotion("surprised") == Emotion::Invalid);
  CHECK(parseEmotion(nullptr) == Emotion::Invalid);
  CHECK(parseEmotion("") == Emotion::Invalid);
  CHECK(std::strcmp(emotionName(Emotion::Curious),"curious") == 0);

@@ -16,5 +16,5 @@ jobs:
           python-version: '3.11'
       - name: Install PlatformIO
         run: pip install platformio
-      - name: Build network prototype
-        run: pio run
+      - name: Build network prototype and Waveshare diagnostics
+        run: pio run -e stach-network-prototype -e stach-waveshare-sh8601 -e stach-waveshare-co5300

@@ -5,13 +5,14 @@
 #include <string.h>
 
 namespace stach {
-enum class Emotion : uint8_t { Neutral, Angry, Sleepy, Curious, Invalid };
+enum class Emotion : uint8_t { Neutral, Angry, Sleepy, Curious, Happy, Invalid };
 inline Emotion parseEmotion(const char* value) {
   if (!value) return Emotion::Invalid;
   if (strcmp(value, "neutral") == 0) return Emotion::Neutral;
   if (strcmp(value, "angry") == 0) return Emotion::Angry;
   if (strcmp(value, "sleepy") == 0) return Emotion::Sleepy;
   if (strcmp(value, "curious") == 0) return Emotion::Curious;
+  if (strcmp(value, "happy") == 0) return Emotion::Happy;
   return Emotion::Invalid;
 }
 inline const char* emotionName(Emotion e) {
@@ -20,6 +21,7 @@ inline const char* emotionName(Emotion e) {
     case Emotion::Angry: return "angry";
     case Emotion::Sleepy: return "sleepy";
     case Emotion::Curious: return "curious";
+    case Emotion::Happy: return "happy";
     default: return "invalid";
   }
 }
