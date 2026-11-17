@@ -1,54 +1,67 @@
-# STACH — Stage 6: Wi-Fi QR onboarding
+# STACH — Stage 7: Phone Control Center
 
-Minimal companion on the Waveshare ESP32-S3 Touch AMOLED 1.43" (466 × 466). This archive **retains the centered, non-glowing eye style** and stage-5 touch and gesture firmware. This revision adds a physical QR screen and paired network/portal onboarding.
+A responsive **local phone web panel** for Waveshare ESP32-S3 Touch AMOLED 1.43". This project carries forward stages 1–6, including centered, anti-aliased flat-white eyes, eyebrows for emotions only, touchscreen gesture recognition, IMU support, and the two on-device QR pairing screens.
 
-## Phone pairing
+## Open the preview first (no board required)
 
-1. Boot the Stach board. It starts an independent WPA2 Wi-Fi network named `Stach-XXXXXX` with an individual 16-character random hexadecimal password stored in ESP32 NVS.
-2. **Long-press** Stach's touchscreen (~650 ms) on the eye screen to reveal the **Wi-Fi QR**. Scan it using your phone's camera and choose to join the network. A phone can report **"No Internet"**: that's normal, because this local access point has no internet uplink.
-3. **Tap** Stach once to show the **portal QR** containing the actual web address (normally `http://192.168.4.1/`). Scan it or type the URL into your browser **while connected to Stach Wi-Fi**.
-4. Tap to switch the two QR codes, double-tap or long-press to return to the eyes. The QR screen closes automatically after 90 seconds without an interaction.
-5. Once connected, the web page also has three remote controls: display Wi-Fi QR, display portal QR, return to face. This works only after your phone has already joined the Stach Wi-Fi network.
+Double-click `preview/stach-panel.html`. The page automatically enters **DEMO** mode if opened directly as a file. Try the emotion buttons, look joystick, QR-screen selector, automatic-look and tilt switches, and simulated charging / falling / low battery. Demo actions never modify hardware.
 
-Some mobile operating systems will **not automatically open a browser after joining Wi-Fi** from a QR. This is why the second code exists. The two QR codes are intentionally distinct. Never rely on the phone having an internet connection to Stach.
+`preview/panel-390px.png` and `preview/panel-1280px.png` are screenshots taken in actual Chromium at phone and desktop widths. **They are previews, not screenshots of the real AMOLED.**
 
-## QR specifications
+## Real device
 
-- Uses `ricmoo/QRCode@0.0.1` for QR matrix generation. MIT license: https://github.com/ricmoo/QRCode
-- QR **version 7, ECC medium**, fixed 45 × 45 modules and true 4-module white quiet zone.
-- Positive black-on-white, 5-pixel square module = 265 px outer square centered at (100,100) on the 466 × 466 circular display. All four corners are inside the circular panel.
-- The QR is redrawn **once per screen change**, not every animation frame. The eye engine resumes when closing the QR.
-- No server or internet request is required to construct or display a QR.
-- The saved per-device password is **not** included in HTTP `/api/status` or printed into USB serial logs. It is encoded in the on-device Wi-Fi QR only; anyone able to see that QR can join the local AP.
+1. Flash the project built for your exact supported **standard/B** Waveshare controller profile (SH8601 or CO5300; do **not** flash on a C revision without a matching verified BSP).
+2. On the display, long-press to show the Wi-Fi QR. Scan it and join the device's `Stach-XXXXXX` WPA2 network. The phone may warn there is no internet, because this is a local access point.
+3. Open **http://192.168.4.1/** on the phone, or use the portal QR on Stach. You should see the same panel as the offline demo (the same HTML is embedded in the firmware).
+4. Use the controls; the panel refreshes status every 2.5 seconds. It shows an offline indicator if the device is unreachable and recovers automatically.
 
-## HTTP API
+## Working API and behaviors
 
-`GET /api/status`: includes non-secret `ssid`, `ip`, `pairingScreen`, sensors and expression.
+| Method + route | Purpose |
+| --- | --- |
+| `GET /` | Mobile-first panel embedded in the firmware; no CDN, external fonts, cloud, or internet needed |
+| `GET /api/status` | SSID/IP, active emotion and pairing screen, gesture/IMU availability, uptime, clients, current toggles, known/unknown battery and charger state, manual override timer; **no Wi-Fi password** |
+| `POST /api/expression?value=...` | One of `neutral`, `angry`, `sleepy`, `curious`, `happy`; manual override for 8 seconds |
+| `POST /api/pairing?mode=...` | `face`, `wifi`, `portal`; device screen reverts after 90 s |
+| `POST /api/gaze?x=...&y=...` | Normalized X and Y in `[-1,1]`; rejected if non-numeric/out-of-range; remote motion expires automatically after 2.4 seconds and is confined to the **center** of the circular screen |
+| `GET /api/settings` | Current `idleMotion` and `tiltEnabled` switch states |
+| `POST /api/settings?key=...&value=...` | Persist `idleMotion` or `tiltEnabled` as `0/1` in ESP32 NVS, with error handling |
 
-`POST /api/pairing?mode=wifi|portal|face`: display a pairing screen or resume the face (HTTP 400 on invalid mode). **The API is accessible to Wi-Fi clients on the local AP; it is not an internet-exposed authenticated service.** Do not attach untrusted users to the Stach AP.
+**Design:** A black AMOLED surface with two solid-white eyes, black pupils, no reflections, glow, lips, or surprise expression. The panel preview uses browser CSS and represents an approximate animation; the device uses its existing RGB565 drawing engine.
 
-`POST /api/expression?value=neutral|angry|sleepy|curious|happy`: earlier expression override.
+**Battery/charging:** The status panel shows "Не определена" unless a *real* calibrated battery or charging-state provider has been connected. In the standalone preview, the demonstration controls are intentionally simulated. Falling/charging calibration and physical hardware validation remain in the final hardware stage. Brightness slider is intentionally **not shown** until the panel's supported brightness API has been verified.
 
-## Included files
+**Security:** The portal uses plain local HTTP and relies on the Stach AP password to restrict access. Anyone who learns that password and joins the AP can use its control API. Do not connect untrusted people to the AP. No persistent password is served in `/api/status`, in the HTML, or through serial output. No remote/cloud control is included.
 
-- `include/stach_pairing.h`: portable UI state machine, timeout and QR layout; native C++ tests.
-- `include/stach_qr_display.h`: QR encoder integration and QSPI panel rendering (hardware profiles only).
-- `src/main.cpp`: Wi-Fi+portal setup, HTTP pairing API, touch gestures, QR/face modes.
-- `platformio.ini`: adds QRCode dependency for both Waveshare profiles; network-only profile needs none.
-- `test/pairing_test.cpp`: 33 pairing/password/layout assertions.
-- `preview/qr-wifi-example.png`, `preview/qr-portal-example.png`: sample QR images with **fake demo credentials**; both decoded with OpenCV before packaging.
-- `preview/stach-pairing-preview.html`: offline clickable demonstration for Windows browser.
+## Files added/changed
 
-## Build and verification
+- `web/stach-panel.html`: the authoritative frontend source; open directly as an offline demo.
+- `include/stach_web.h`: automatically generated PROGMEM copy of the exact HTML.
+- `tools/build_web_header.py`: regenerate embedded HTML after frontend changes.
+- `include/stach_control.h`: validated remote gaze + settings payload parsing; boundary-safe motion.
+- `src/main.cpp`: wired web UI, new API routes, persisted toggle settings and centered remote control.
+- `test/control_test.cpp`: 1,809 portable C++ assertions against invalid values, timing wraparound and eye movement bounds.
+- `tools/check_panel.py`: DOM/API correspondence check and Node JavaScript syntax check.
+- `tools/browser_smoke.py`: optional Chromium interaction tests with phone and desktop screenshots.
+- `.github/workflows/check.yml`: includes the new portable web checks and builds all three PlatformIO environments.
 
-Run portable tests with `sh tools/test_core.sh` on Linux/macOS/WSL. GitHub Actions additionally builds the three ESP32-S3 profiles on push (`stach-network-prototype`, `stach-waveshare-sh8601`, `stach-waveshare-co5300`). Once uploaded, open https://github.com/leonidgg2323-code/stach/actions to inspect the actual PlatformIO result.
+## Reproduce tests
 
-**Verified in development**: native C++ tests, QR data & geometry checks, example QR decoding, JavaScript syntax checks and ZIP integrity. **Not verified in development**: full new PlatformIO firmware build, actual AMOLED output, physical touch gestures or phone scan on the real board. These require GitHub Actions and then hardware. The project-wide hardware validation stage remains at the end by request.
+```sh
+sh tools/test_core.sh
+python3 tools/check_panel.py
+```
 
-## Board compatibility
+Optional screenshot / UI smoke tests if Chromium and Playwright for Python are installed:
 
-The current GPIO map and panel profiles target **Waveshare ESP32-S3-Touch-AMOLED-1.43 standard/B**, not the differently wired C model. Choose the real LCD controller profile (SH8601 or CO5300). Refer to Waveshare's PCB revision and schematic prior to flashing. A working USB power supply and display are needed to verify the QR in practice.
+```sh
+python3 tools/browser_smoke.py
+```
 
-## Upload via GitHub Desktop
+CI also runs PlatformIO builds for `stach-network-prototype`, `stach-waveshare-sh8601`, `stach-waveshare-co5300`. A passing CI build confirms **compilation**, not the physical device, QR scanning on a phone, charger sensing or touch/IMU calibration.
 
-Copy the **contents** of this ZIP into your cloned `stach` folder, replacing files. Open GitHub Desktop -> Changes -> Commit to main -> Push origin. A green CI run verifies build, not the physical board. No need to upload zipped binary files to the repository.
+## Upload to GitHub Desktop
+
+Extract the **contents** of the ZIP into your locally cloned `stach` folder (not an extra nested directory). Replace matching files. In GitHub Desktop choose **Commit to main** and **Push origin**. Follow results at https://github.com/leonidgg2323-code/stach/actions. The ChatGPT GitHub connection has been read-only in practice (HTTP 403 for writes).
+
+**Next independent stage:** 8, Bluetooth HID wireless mouse to control Windows; not implemented by this stage.

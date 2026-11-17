@@ -7,6 +7,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test portable core
         run: sh tools/test_core.sh
+      - name: Verify embedded panel and JavaScript
+        run: python3 tools/check_panel.py
   firmware:
     runs-on: ubuntu-latest
     steps:

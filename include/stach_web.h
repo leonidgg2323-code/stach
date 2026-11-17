@@ -1,0 +1,197 @@
+#pragma once
+// Generated from web/stach-panel.html. Run python3 tools/build_web_header.py after edits.
+namespace stach { namespace web {
+static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#090b10">
+  <title>Stach — управление</title>
+  <style>
+    :root {color-scheme:dark;--bg:#090b10;--card:#141820;--card2:#1a1e27;--line:#2a303b;--muted:#98a0b0;--text:#f8fafc;--green:#78e1b1;--accent:#ccd5ff}
+    *{box-sizing:border-box} body{margin:0;background:radial-gradient(ellipse at 50% 0%,#1b2031 0%,#090b10 55%);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100dvh}
+    button{font:inherit;cursor:pointer}button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+    .shell{width:min(1120px,100%);margin:auto;padding:clamp(16px,3.5vw,40px)}
+    header{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:24px}
+    .brand{display:flex;align-items:center;gap:12px}.mark{width:37px;height:37px;border-radius:13px;border:1px solid #818b9e;display:flex;align-items:center;justify-content:center;background:#1c212c}
+    .mark i,.mark b{height:15px;width:8px;background:#fff;border-radius:50%;display:inline-block;margin:0 2px}.brand h1{font-size:22px;letter-spacing:-.8px;line-height:1.1;margin:0}.brand small{font-size:11px;letter-spacing:2px;color:var(--muted)}
+    .chip{border:1px solid var(--line);background:#171c25;padding:8px 11px;border-radius:50px;font-size:12px;font-weight:600;white-space:nowrap;display:inline-flex;gap:7px;align-items:center}.dot{width:7px;height:7px;border-radius:50%;background:#f2b766}.chip.online .dot{background:var(--green);box-shadow:0 0 0 3px #78e1b114}.chip.offline .dot{background:#ef8a8a}
+    .intro{margin-bottom:26px}.eyebrow{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:700}.intro h2{font-size:clamp(29px,4vw,43px);letter-spacing:-1.6px;margin:5px 0}.sub{color:var(--muted);margin:0;font-size:13px}
+    .layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(310px,.85fr);gap:18px}.stack{display:grid;gap:18px;align-content:start}
+    .panel{border:1px solid var(--line);border-radius:22px;background:linear-gradient(145deg,#151921,#101319);padding:20px;min-width:0}.panel h3{font-size:16px;letter-spacing:-.3px;margin:0 0 5px}.panel .sub{font-size:12px}
+    .panel-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:16px}.tag{border:1px solid #344052;color:#bbc3d2;border-radius:8px;font-size:10px;padding:5px 8px;font-weight:650;letter-spacing:.5px}
+    .device-holder{display:flex;align-items:center;justify-content:center;padding:8px 4px 18px}
+    .device{position:relative;width:min(100%,380px);aspect-ratio:1;border-radius:50%;padding:10px;background:linear-gradient(145deg,#f0f1f2,#848b92 26%,#e6e8e9 45%,#606870 75%,#c9cfd1);box-shadow:0 20px 55px #0009, inset 0 0 0 2px #505760}
+    .screen{width:100%;height:100%;background:#000;border-radius:50%;overflow:hidden;position:relative;box-shadow:inset 0 0 0 2px #151515;touch-action:none}
+    .eyes-group{position:absolute;inset:0;transform:translate(0,0);will-change:transform}.eye{position:absolute;top:34%;width:23.6%;height:31.3%;border-radius:50%;background:#fff;transform-origin:center center;overflow:visible}.eye.left{left:22%}.eye.right{left:52%}.pupil{position:absolute;width:42%;height:52%;border-radius:50%;top:24%;left:29%;background:#000}
+    .brow{position:absolute;top:25%;width:17%;height:1.6%;border-radius:20px;background:#fff;opacity:0;transform-origin:center}.brow.left{left:25.5%}.brow.right{left:57.5%}
+    .screen.angry .brow{opacity:1}.screen.angry .brow.left{transform:translateY(10px) rotate(17deg)}.screen.angry .brow.right{transform:translateY(10px) rotate(-17deg)}
+    .screen.sleepy .brow{opacity:.7;transform:translateY(14px)}.screen.curious .brow{opacity:1}.screen.curious .brow.left{transform:translateY(9px) rotate(-6deg)}.screen.curious .brow.right{transform:translateY(-9px) rotate(6deg)}
+    .screen.happy .brow{opacity:1;transform:translateY(-4px)}
+    .charge-symbol{position:absolute;top:9%;left:50%;transform:translateX(-50%);display:none;font-size:14px;color:#8ee3af;white-space:nowrap}.screen.charging .charge-symbol{display:block}
+    .charge-arc{position:absolute;inset:4%;border-radius:50%;border:2px solid transparent;border-top-color:#58d68d;display:none;pointer-events:none}.screen.charging .charge-arc{display:block;animation:charge 2s linear infinite}@keyframes charge{to{transform:rotate(360deg)}}
+    .device-note{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+    .buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.btn{padding:12px 10px;border:1px solid #3a404c;color:#f1f2f6;background:#222833;border-radius:12px;min-height:43px;transition:background .16s,border-color .16s;white-space:normal}.btn:hover{background:#2d3442}.btn.active{background:#333d52;border-color:#aab7d0;color:#fff}.btn.primary{background:#e9ecfa;border-color:#e9ecfa;color:#151b26;font-weight:700}.btn[disabled]{opacity:.5;cursor:not-allowed}.buttons .wide{grid-column:1/-1}
+    .joy-wrap{display:flex;align-items:center;gap:18px;justify-content:space-between}.joystick{width:clamp(145px,41vw,185px);max-width:100%;aspect-ratio:1;border:1px solid #333c49;background:radial-gradient(circle,#242b37 0 6px,transparent 7px),linear-gradient(90deg,transparent 49.7%,#3a404d 50%,transparent 50.3%),linear-gradient(0deg,transparent 49.7%,#3a404d 50%,transparent 50.3%),#1b202a;border-radius:50%;position:relative;touch-action:none;flex-shrink:0;cursor:crosshair}
+    .knob{width:42px;height:42px;background:#eceffd;border-radius:50%;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;box-shadow:0 4px 18px #0009}.joy-help{font-size:12px;color:var(--muted);max-width:170px}
+    .info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.info{border:1px solid #282e39;background:#1a1f29;border-radius:13px;padding:11px;min-width:0}.info span{display:block;font-size:11px;color:var(--muted)}.info strong{display:block;font-size:13px;overflow-wrap:anywhere;margin-top:3px;font-weight:650}
+    .toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid #252b34}.toggle:last-child{border:0;padding-bottom:0}.toggle strong{display:block;font-size:13px}.toggle small{color:var(--muted);font-size:11px;display:block}.switch{position:relative;display:inline-block;width:42px;height:25px;flex-shrink:0}.switch input{position:absolute;opacity:0;inset:0}.switch .track{display:block;width:100%;height:100%;background:#3c4350;border-radius:30px;transition:background .2s}.switch .track::after{content:"";position:absolute;left:3px;top:3px;width:19px;height:19px;border-radius:50%;background:#fff;transition:transform .2s}.switch input:checked+.track{background:#8b9ac6}.switch input:checked+.track::after{transform:translateX(17px)}
+    .toast{position:fixed;left:50%;bottom:16px;transform:translate(-50%,110px);max-width:min(92vw,480px);padding:12px 18px;border:1px solid #4f5967;background:#27303c;color:#f4f7fa;border-radius:12px;z-index:100;font-size:13px;text-align:center;transition:transform .25s;box-shadow:0 8px 40px #0009}.toast.show{transform:translate(-50%,0)}
+    .demo-only{display:none}.demo .demo-only{display:block}.foot{margin:22px auto 4px;color:#7f899b;text-align:center;font-size:11px}
+    @media(max-width:800px){.layout{grid-template-columns:1fr}.intro{margin-bottom:18px}.device{width:min(83vw,350px)}.panel{padding:17px}.shell{padding:16px}header{margin-bottom:17px}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}}
+  </style>
+</head>
+<body>
+<div class="shell" id="app">
+  <header>
+    <div class="brand"><div class="mark" aria-hidden="true"><i></i><b></b></div><div><h1>Stach</h1><small>CONTROL CENTER</small></div></div>
+    <div id="connection" class="chip offline" aria-live="polite"><span class="dot"></span><span id="connectionText">Подключение…</span></div>
+  </header>
+  <div class="intro"><div class="eyebrow">Твой маленький компаньон</div><h2>Живой характер.<br>Твои правила.</h2><p class="sub">Эмоции, взгляд, подключение и настройки — в одном месте.</p></div>
+  <main class="layout">
+    <section class="stack" aria-label="Превью и движения">
+      <div class="panel"><div class="panel-head"><div><h3>Лицо Stach</h3><p class="sub">Предпросмотр поведения · не видеотрансляция</p></div><span class="tag" id="faceTag">NEUTRAL</span></div>
+        <div class="device-holder"><div class="device"><div class="screen neutral" id="screen"><div class="charge-arc"></div><div class="charge-symbol">⚡ Зарядка</div><div class="eyes-group" id="eyes"><div class="brow left"></div><div class="brow right"></div><div class="eye left" id="leftEye"><div class="pupil" id="leftPupil"></div></div><div class="eye right" id="rightEye"><div class="pupil" id="rightPupil"></div></div></div></div></div></div>
+        <div class="device-note"><span id="activeEmotion">Обычный</span><span>·</span><span id="pairingLabel">Экран: глаза</span></div>
+      </div>
+      <div class="panel"><div class="panel-head"><div><h3>Управление взглядом</h3><p class="sub">Перемещение внутри безопасной центральной зоны</p></div><span class="tag">TOUCHPAD</span></div>
+        <div class="joy-wrap"><div class="joystick" id="joystick" role="application" aria-label="Двигай палец, чтобы Stach посмотрел в сторону"><div class="knob" id="knob"></div></div><div class="joy-help">Проведи пальцем по кругу. После отпускания взгляд вернётся к естественному движению.<p><button class="btn" id="centerGaze">В центр</button></p></div></div>
+      </div>
+      <div class="panel demo-only"><h3>Демонстрация реакций</h3><p class="sub">Работает только в скачанном HTML. Не отправляет события реальному устройству.</p><div class="buttons" style="margin-top:12px"><button class="btn" data-demo="charging">Подключить зарядку</button><button class="btn" data-demo="fall">Падение</button><button class="btn" data-demo="sleepy">Низкий заряд</button><button class="btn" data-demo="reset">Вернуть обычное</button></div></div>
+    </section>
+    <section class="stack" aria-label="Панель управления">
+      <div class="panel"><div class="panel-head"><div><h3>Эмоции</h3><p class="sub">Ручной выбор действует 8 секунд, затем Stach реагирует на реальные события</p></div></div>
+        <div class="buttons" id="emotionButtons"><button class="btn active" data-emotion="neutral">Обычный</button><button class="btn" data-emotion="angry">Злой</button><button class="btn" data-emotion="sleepy">Сонный</button><button class="btn" data-emotion="curious">Любопытный</button><button class="btn wide" data-emotion="happy">Радостный</button></div>
+      </div>
+      <div class="panel"><div class="panel-head"><div><h3>QR-подключение</h3><p class="sub">Выбери, что Stach показывает на своём дисплее</p></div></div>
+        <div class="buttons"><button class="btn active" data-pairing="face">Глаза</button><button class="btn" data-pairing="wifi">Wi-Fi QR</button><button class="btn wide" data-pairing="portal">QR веб-панели</button></div>
+      </div>
+      <div class="panel"><div class="panel-head"><div><h3>Настройки поведения</h3><p class="sub">Сохраняются в памяти Stach</p></div></div>
+        <label class="toggle"><span><strong>Живой взгляд</strong><small>Самостоятельные мягкие движения глаз</small></span><span class="switch"><input type="checkbox" id="idleMotion" checked><span class="track"></span></span></label>
+        <label class="toggle"><span><strong>Реакция на наклон</strong><small>Небольшой сдвиг глаз от акселерометра</small></span><span class="switch"><input type="checkbox" id="tiltEnabled" checked><span class="track"></span></span></label>
+      </div>
+      <div class="panel"><div class="panel-head"><div><h3>Состояние устройства</h3><p class="sub">Действительные данные, без выдуманного заряда</p></div><span class="tag">LIVE</span></div>
+        <div class="info-grid"><div class="info"><span>Wi-Fi</span><strong id="ssid">—</strong></div><div class="info"><span>Адрес</span><strong id="ip">—</strong></div><div class="info"><span>Батарея</span><strong id="battery">Не определена</strong></div><div class="info"><span>Зарядка</span><strong id="charging">Не определена</strong></div><div class="info"><span>Сенсор</span><strong id="touch">—</strong></div><div class="info"><span>Гироскоп</span><strong id="imu">—</strong></div><div class="info"><span>Последний жест</span><strong id="gesture">—</strong></div><div class="info"><span>Сеть / клиенты</span><strong id="clients">—</strong></div></div>
+      </div>
+    </section>
+  </main>
+  <footer class="foot">STACH · Локальное управление через Wi-Fi · Без облака · v0.7</footer>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script>
+(() => {
+  'use strict';
+  const demo = location.protocol === 'file:';
+  document.body.classList.toggle('demo', demo);
+  const $ = id => document.getElementById(id);
+  const names = {neutral:'Обычный',angry:'Злой',sleepy:'Сонный',curious:'Любопытный',happy:'Радостный'};
+  const model = {expression:'neutral',pairingScreen:'face',chargingKnown:false,charging:false,batteryKnown:false,batteryPercent:null,
+    touchReady:false,imuReady:false,ssid:demo?'Stach-DEMO':'—',ip:demo?'192.168.4.1':'—',lastGesture:'none',clients:0,
+    idleMotion:true,tiltEnabled:true,manualRemainingMs:0};
+  let online = false, localX = 0, localY = 0, controller = null, lastSend = 0, toastTimer = 0;
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const ease = t => { t=clamp(t,0,1); return t*t*(3-2*t); };
+  function notify(message) {const t=$('toast');t.textContent=message;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2600);}
+  function setConnection(ok) { online=ok; $('connection').className='chip '+(ok?'online':'offline');$('connectionText').textContent=demo?'Демо без устройства':(ok?'Подключено':'Нет связи'); }
+  async function request(path, params) {
+    if (demo) return {ok:true,body:{},status:200};
+    const url = path + (params ? '?' + new URLSearchParams(params).toString() : '');
+    const abort = new AbortController();const timer=setTimeout(()=>abort.abort(),3500);
+    try {const response=await fetch(url,{method:params?'POST':'GET',signal:abort.signal,cache:'no-store'});
+      const raw=await response.text();let body={};try{body=JSON.parse(raw)}catch(_){body={message:raw}}
+      setConnection(true);return {ok:response.ok,body,status:response.status};
+    } catch(e) {setConnection(false);return {ok:false,body:{message:'Нет связи со Stach'},status:0}}
+    finally {clearTimeout(timer)}
+  }
+  function applyStatus(s) {
+    if(!s || typeof s!=='object')return;
+    for(const key of Object.keys(model)) if(Object.prototype.hasOwnProperty.call(s,key) && s[key]!==undefined) model[key]=s[key];
+    $('ssid').textContent=model.ssid||'—';$('ip').textContent=model.ip||'—';
+    $('battery').textContent=model.batteryKnown&&Number.isFinite(Number(model.batteryPercent)) ? String(model.batteryPercent)+'%' : 'Не определена';
+    $('charging').textContent=model.chargingKnown?(model.charging?'Заряжается':'Не заряжается'):'Не определена';
+    $('touch').textContent=model.touchReady?'Подключён':'Недоступен';$('imu').textContent=model.imuReady?'Подключён':'Недоступен';
+    $('gesture').textContent=model.lastGesture||'—';$('clients').textContent=String(model.clients??'—')+' клиентов';
+    $('idleMotion').checked=!!model.idleMotion;$('tiltEnabled').checked=!!model.tiltEnabled;
+    document.querySelectorAll('[data-emotion]').forEach(b=>b.classList.toggle('active',b.dataset.emotion===model.expression));
+    document.querySelectorAll('[data-pairing]').forEach(b=>b.classList.toggle('active',b.dataset.pairing===model.pairingScreen));
+    $('activeEmotion').textContent=names[model.expression]||'Обычный';
+    $('pairingLabel').textContent='Экран: '+({face:'глаза',wifi:'Wi-Fi QR',portal:'QR панели'}[model.pairingScreen]||'глаза');
+    $('faceTag').textContent=(model.expression||'neutral').toUpperCase();
+  }
+  async function poll() {if(demo)return;const res=await request('/api/status');if(res.ok){applyStatus(res.body);} }
+  document.querySelectorAll('[data-emotion]').forEach(btn=>btn.addEventListener('click',async()=>{
+    const expression=btn.dataset.emotion;const res=await request('/api/expression',{value:expression});
+    if(res.ok){model.expression=expression;model.manualRemainingMs=8000;applyStatus(model);notify('Эмоция: '+(names[expression]||expression)+' · 8 секунд');}
+    else notify(res.body.message||'Не удалось изменить эмоцию');
+  }));
+  document.querySelectorAll('[data-pairing]').forEach(btn=>btn.addEventListener('click',async()=>{
+    const mode=btn.dataset.pairing;const res=await request('/api/pairing',{mode});
+    if(res.ok){model.pairingScreen=mode;applyStatus(model);notify('Экран изменён');}
+    else notify(res.body.message||'Ошибка переключения QR');
+  }));
+  for(const id of ['idleMotion','tiltEnabled']) $(id).addEventListener('change',async e=>{
+    const value=e.target.checked;const res=await request('/api/settings',{key:id,value:value?'1':'0'});
+    if(res.ok){model[id]=value;notify('Настройка сохранена');}else{e.target.checked=!value;notify(res.body.message||'Не удалось сохранить настройку');}
+  });
+  const joy=$('joystick'),knob=$('knob');
+  async function sendGaze(x,y,force) {
+    const now=performance.now();if(!force&&now-lastSend<150)return;lastSend=now;
+    if(demo)return;
+    const res=await request('/api/gaze',{x:x.toFixed(3),y:y.toFixed(3)});
+    if(!res.ok && res.status!==0)notify(res.body.message||'Ошибка управления взглядом');
+  }
+  function joystickMove(event) {
+    const rect=joy.getBoundingClientRect(),cx=rect.left+rect.width/2,cy=rect.top+rect.height/2;
+    let x=(event.clientX-cx)/(rect.width*.34),y=(event.clientY-cy)/(rect.height*.34);
+    const length=Math.hypot(x,y);if(length>1){x/=length;y/=length}
+    localX=clamp(x,-1,1);localY=clamp(y,-1,1);
+    knob.style.left=50+localX*34+'%';knob.style.top=50+localY*34+'%';sendGaze(localX,localY,false);
+  }
+  function resetGaze(){localX=0;localY=0;knob.style.left='50%';knob.style.top='50%';sendGaze(0,0,true)}
+  joy.addEventListener('pointerdown',event=>{joy.setPointerCapture(event.pointerId);joystickMove(event)});
+  joy.addEventListener('pointermove',event=>{if(joy.hasPointerCapture(event.pointerId))joystickMove(event)});
+  joy.addEventListener('pointerup',resetGaze);joy.addEventListener('pointercancel',resetGaze);
+  $('centerGaze').addEventListener('click',resetGaze);
+  document.querySelectorAll('[data-demo]').forEach(b=>b.addEventListener('click',()=>{
+    if(!demo)return;const v=b.dataset.demo;
+    model.expression=v==='fall'?'angry':v==='sleepy'?'sleepy':v==='charging'?'happy':'neutral';
+    model.chargingKnown=v==='charging';model.charging=v==='charging';model.batteryKnown=v==='sleepy';model.batteryPercent=v==='sleepy'?8:null;
+    applyStatus(model);
+  }));
+  let start=performance.now();
+  function draw(now) {
+    const t=(now-start)/1000;const em=names[model.expression]?model.expression:'neutral';const screen=$('screen');
+    screen.className='screen '+em+(model.chargingKnown&&model.charging?' charging':'');
+    let look=0;
+    if(model.idleMotion && Math.abs(localX)<.001 && Math.abs(localY)<.001) {
+      const phase=t%8;
+      if(phase>=1.5&&phase<1.74)look=.06*ease((phase-1.5)/.24);
+      else if(phase>=1.74&&phase<2.2)look=-.20*ease((phase-1.74)/.46);
+      else if(phase>=2.2&&phase<3.2)look=-.20;
+      else if(phase>=3.2&&phase<3.7)look=-.20*(1-ease((phase-3.2)/.5));
+      else if(phase>=4.5&&phase<4.74)look=-.06*ease((phase-4.5)/.24);
+      else if(phase>=4.74&&phase<5.2)look=.20*ease((phase-4.74)/.46);
+      else if(phase>=5.2&&phase<6.2)look=.20;
+      else if(phase>=6.2&&phase<6.7)look=.20*(1-ease((phase-6.2)/.5));
+    }
+    const x=clamp(look+localX,-1,1),y=localY;
+    const size=screen.clientWidth/466;
+    $('eyes').style.transform=`translate(${x*18*size}px,${y*10*size}px)`;
+    let openness=em==='sleepy'?.43:em==='angry'?.75:em==='happy'?.72:1;
+    const blinkPhase=t%5.7;if(blinkPhase>5.54)openness*=Math.max(.08,Math.abs(blinkPhase-5.62)/.08);
+    $('leftEye').style.transform=`scale(${1+x*.17},${(1+x*.17)*openness})`;
+    $('rightEye').style.transform=`scale(${1-x*.17},${(1-x*.17)*openness})`;
+    $('leftPupil').style.transform=`translate(${x*15*size}px,${y*10*size}px)`;
+    $('rightPupil').style.transform=`translate(${x*15*size}px,${y*10*size}px)`;
+    requestAnimationFrame(draw);
+  }
+  if(demo){setConnection(true);applyStatus(model);}else{setConnection(false);poll();setInterval(poll,2500);}
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
+)STACHWEB";
+}} // namespace stach::web

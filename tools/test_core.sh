@@ -27,3 +27,6 @@ c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/touch_gestures_test.cpp -o .
 
 c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/pairing_test.cpp -o .build/pairing_test
 .build/pairing_test
+
+c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/control_test.cpp -o .build/control_test
+.build/control_test
