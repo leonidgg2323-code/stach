@@ -1,3 +1,13 @@
+# STACH — Stage 11: Reliability & Security
+
+**Added:** per-boot same-origin token for all API POST commands, Host/Origin/Fetch-Site checks, strict HTTP guard on every route, bounded request sizes and per-client rate limit, Wi-Fi AP recovery attempts, memory-health endpoint, and automatic secure token handling in the mobile panel. All previous eye, QR, BLE mouse, battery and modes features are preserved.
+
+**Full security notes and checklists:** [STAGE11-SECURITY.md](STAGE11-SECURITY.md). **Important:** HTTP is unencrypted, and the session token is an anti-CSRF control, not separate authentication for people who are already connected to Stach Wi-Fi.
+
+**Install:** unzip contents to your existing `stach` clone, then `Commit to main → Push origin` in GitHub Desktop. Check both `core` and `firmware` GitHub Actions jobs. An accepted build is *not* an on-device test.
+
+---
+
 # STACH — Stage 10: Modes & Personalization
 
 **Based on the complete Stage 9 project.** Target board: Waveshare ESP32-S3 Touch AMOLED 1.43 / applicable 1.43B revision; separate 1.43C hardware is **not supported** by these pin profiles.

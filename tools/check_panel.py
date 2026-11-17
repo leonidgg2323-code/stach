@@ -44,4 +44,4 @@ assert 'chargingKnown' in html and 'batteryKnown' in html
 assert 'surprised' not in html.lower()
 assert 'glow' not in html.lower() and 'filter:blur' not in html.lower()
 assert 'https://' not in html and 'http://' not in html, 'Panel must not load external resources'
-print(f'Stage-10 web checks: {len(e.ids)} unique IDs; {len(js)} JS chars, no syntax/API mismatch')
+print(f'Stage-11 web checks: {len(e.ids)} unique IDs; {len(js)} JS chars, no syntax/API mismatch')

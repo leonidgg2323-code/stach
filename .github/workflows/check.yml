@@ -9,6 +9,8 @@ jobs:
         run: sh tools/test_core.sh
       - name: Verify embedded panel and JavaScript
         run: python3 tools/check_panel.py
+      - name: Verify HTTP security guard coverage
+        run: python3 tools/security_integration_check.py
       - name: Test BLE compatibility adapter
         run: python3 tools/test_ble_patch.py
   firmware:

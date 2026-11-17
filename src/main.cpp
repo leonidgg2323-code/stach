@@ -12,6 +12,7 @@
 #include "stach_pairing.h"
 #include "stach_control.h"
 #include "stach_modes.h"
+#include "stach_security.h"
 #include "stach_mouse.h"
 #include "stach_power.h"
 #include "stach_web.h"
@@ -43,6 +44,50 @@ static stach::modes::Appearance appearance;
 static stach::mouse::Engine airMouse;
 static stach::control::RemoteGaze remoteGaze;
 static bool initialized = false;
+static char sessionToken[33] = {}; // random, RAM-only; never printed/stored
+static stach::security::RateGate requestRate;
+static bool apHealthy=false;
+static uint32_t lastApRecovery=0;
+
+static void securityHeaders(){
+  server.sendHeader("Cache-Control", "no-store, max-age=0");
+  server.sendHeader("X-Content-Type-Options", "nosniff");
+  server.sendHeader("Referrer-Policy", "no-referrer");
+  server.sendHeader("X-Frame-Options", "DENY");
+  server.sendHeader("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+}
+static uint32_t remoteAddress(){
+  IPAddress ip=server.client().remoteIP();
+  return uint32_t(ip[0]) | uint32_t(ip[1])<<8 | uint32_t(ip[2])<<16 | uint32_t(ip[3])<<24;
+}
+static bool guardRequest(bool modifying) {
+  securityHeaders();
+  if (!stach::security::allowedHost(server.hostHeader().c_str()) ||
+      !stach::security::allowedOrigin(server.header("Origin").c_str()) ||
+      !stach::security::allowedFetchSite(server.header("Sec-Fetch-Site").c_str())) {
+    server.send(403,"application/json","{\"error\":\"Invalid request origin\"}");return false;
+  }
+  if(server.clientContentLength()>512 || server.args()>8 || server.uri().length()>120){
+    server.send(413,"application/json","{\"error\":\"Request too large\"}");return false;
+  }
+  if(modifying && !stach::security::equalToken(sessionToken,server.header("X-Stach-Token").c_str())){
+    server.send(403,"application/json","{\"error\":\"Session token missing or expired; reload the page\"}");return false;
+  }
+  if(!requestRate.allow(remoteAddress(),millis())){
+    server.sendHeader("Retry-After","1");
+    server.send(429,"application/json","{\"error\":\"Too many requests\"}");return false;
+  }
+  return true;
+}
+static bool startAccessPoint(){
+  apHealthy=false;
+  if(!WiFi.mode(WIFI_AP))return false;
+  const IPAddress local(192,168,4,1);
+  if(!WiFi.softAPConfig(local,local,IPAddress(255,255,255,0)))return false;
+  apHealthy=WiFi.softAP(ssid.c_str(),password.c_str());
+  return apHealthy;
+}
+
 static stach::power::Meter batteryMeter;
 static stach::power::Saver saver;
 static stach::motion::Tilt tilt;
@@ -178,6 +223,9 @@ void setup() {
   mouseConf.invertY=preferences.getBool("minvy",false);
   mouseConf.axisYX=preferences.getBool("maxis",false);
   airMouse.configure(mouseConf,millis());
+  uint8_t sessionBytes[16];
+  esp_fill_random(sessionBytes,sizeof(sessionBytes));
+  stach::security::encodeToken(sessionBytes,sessionToken);
   password = preferences.getString("ap_pass", "");
   if (!stach::validPassword(password.c_str())) {
     password = newPassword();
@@ -192,17 +240,30 @@ void setup() {
   if (!stach::wifiQr(qrPayload, sizeof(qrPayload), ssid.c_str(), password.c_str())) {
     Serial.println("Invalid QR payload"); return;
   }
-  WiFi.mode(WIFI_AP);
-  // Fixed link-local AP address makes the portal QR reliable.
-  if (!WiFi.softAPConfig(IPAddress(192,168,4,1),IPAddress(192,168,4,1),IPAddress(255,255,255,0))) {
-    Serial.println("Wi-Fi AP address configuration failed"); return;
-  }
-  if (!WiFi.softAP(ssid.c_str(), password.c_str())) {Serial.println("Wi-Fi AP failed"); return;}
+  if(!startAccessPoint()) Serial.println("[WIFI] AP unavailable, will retry without reboot");
   const String address = String("http://") + WiFi.softAPIP().toString() + "/";
   if (address.length() >= sizeof(portalUrl)) {Serial.println("Portal URL too long"); return;}
   address.toCharArray(portalUrl,sizeof(portalUrl));
-  server.on("/", HTTP_GET, [](){server.sendHeader("Cache-Control","no-store");server.send_P(200,"text/html; charset=utf-8",stach::web::page);});
+  const char* collectedHeaders[]={"Origin","Sec-Fetch-Site","X-Stach-Token"};
+  server.collectHeaders(collectedHeaders,3);
+  server.on("/api/session", HTTP_GET, [](){
+    if(!guardRequest(false))return;
+    // Same-origin read only. A random token expires on every reboot.
+    server.send(200,"application/json",String("{\"token\":\"")+sessionToken+"\"}");
+  });
+  server.on("/api/health", HTTP_GET, [](){
+    if(!guardRequest(false))return;
+    String body=String("{\"uptimeMs\":")+String(millis())+
+      ",\"freeHeap\":"+String(ESP.getFreeHeap())+
+      ",\"minFreeHeap\":"+String(ESP.getMinFreeHeap())+
+      ",\"apHealthy\":"+(apHealthy?"true":"false")+
+      ",\"apClients\":"+String(WiFi.softAPgetStationNum())+"}";
+    server.send(200,"application/json",body);
+  });
+  server.on("/", HTTP_GET, [](){
+    if(!guardRequest(false))return;server.sendHeader("Cache-Control","no-store");server.send_P(200,"text/html; charset=utf-8",stach::web::page);});
   server.on("/api/status", HTTP_GET, [](){
+    if(!guardRequest(false))return;
     const uint32_t now=millis();
     const uint64_t uptime=uint64_t(esp_timer_get_time())/1000ULL;
     const uint32_t remain=manualUntil>uptime?uint32_t(manualUntil-uptime):0;
@@ -270,6 +331,7 @@ void setup() {
     server.send(200,"application/json; charset=utf-8",body);
   });
   server.on("/api/expression", HTTP_POST, [](){
+    if(!guardRequest(true))return;
     saver.activity(millis());
     stach::Emotion next = stach::parseEmotion(server.arg("value").c_str());
     if (next == stach::Emotion::Invalid) {server.send(400,"text/plain","Invalid expression");return;}
@@ -279,6 +341,7 @@ void setup() {
   });
   // Centralized mode endpoint: explicit, reversible, and nonpersistent.
   server.on("/api/mode", HTTP_POST, [](){
+    if(!guardRequest(true))return;
     stach::modes::Mode next;
     if(!stach::modes::parse(server.arg("mode").c_str(),next)) {
       server.send(400,"application/json","{\"error\":\"Invalid mode\"}");return;
@@ -291,12 +354,14 @@ void setup() {
   });
   // Only validated appearance preferences are stored in NVS.
   server.on("/api/appearance", HTTP_GET, [](){
+    if(!guardRequest(false))return;
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json",String("{\"brightness\":")+String(appearance.brightness)+
       ",\"gazeActivity\":"+String(appearance.gazeActivity)+
       ",\"blink\":"+(appearance.blink?"true":"false")+"}");
   });
   server.on("/api/appearance", HTTP_POST, [](){
+    if(!guardRequest(true))return;
     const String key=server.arg("key"),value=server.arg("value");
     if(key=="brightness" || key=="gazeActivity") {
       unsigned n=0;
@@ -330,6 +395,7 @@ void setup() {
   // AP clients can ask the physical Stach to display a QR code.
   // Never return the persistent Wi-Fi password over /api/status.
   server.on("/api/pairing", HTTP_POST, [](){
+    if(!guardRequest(true))return;
     saver.activity(millis());
     stach::pairing::Screen next;
     if(!stach::pairing::parseScreen(server.arg("mode").c_str(),next)){
@@ -343,6 +409,7 @@ void setup() {
   });
   // A short-lived, bounded remote gaze. Values are normalized [-1, 1].
   server.on("/api/gaze", HTTP_POST, [](){
+    if(!guardRequest(true))return;
     saver.activity(millis());
     float x=0, y=0;
     if(!stach::control::parseAxis(server.arg("x").c_str(), x) ||
@@ -354,12 +421,14 @@ void setup() {
     server.send(200,"application/json","{\"ok\":true}");
   });
   server.on("/api/settings", HTTP_GET, [](){
+    if(!guardRequest(false))return;
     const String body=String("{\"idleMotion\":") + (settings.idleMotion?"true":"false") +
       ",\"tiltEnabled\":" + (settings.tiltEnabled?"true":"false") + "}";
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json",body);
   });
   server.on("/api/settings", HTTP_POST, [](){
+    if(!guardRequest(true))return;
     const String key=server.arg("key");
     bool next=false;
     if((key!="idleMotion" && key!="tiltEnabled") ||
@@ -377,6 +446,7 @@ void setup() {
   });
   // Power saving can be toggled independently of BLE, gaze and touch.
   server.on("/api/power/saver", HTTP_POST, [](){
+    if(!guardRequest(true))return;
     bool enabled=false;
     if(!stach::control::parseSwitch(server.arg("enabled").c_str(),enabled)){
       server.send(400,"application/json","{\"error\":\"Invalid enabled value\"}");return;
@@ -388,12 +458,14 @@ void setup() {
     server.send(200,"application/json","{\"ok\":true}");
   });
   server.on("/api/power/wake", HTTP_POST, [](){
+    if(!guardRequest(true))return;
     saver.activity(millis());
     server.send(200,"application/json","{\"ok\":true}");
   });
   // Not an automatic calibration: user must FIRST verify with a multimeter
   // that BAT_ADC tracks the real lithium CELL on the exact board revision.
   server.on("/api/power/calibrate", HTTP_POST, [](){
+    if(!guardRequest(true))return;
 #ifdef STACH_WAVESHARE_BOARD
     const String value=server.arg("cellMv");
     if(value.length()<4 || value.length()>4){server.send(400,"application/json","{\"error\":\"Invalid measured voltage\"}");return;}
@@ -416,6 +488,7 @@ void setup() {
   // BLE control commands are only accepted from local Wi-Fi AP clients.
   // No automatic HID action on boot; no HID action without mouse mode+BLE link.
   server.on("/api/mouse/mode", HTTP_POST, [](){
+    if(!guardRequest(true))return;
     saver.activity(millis());
     bool next=false;
     if(!stach::control::parseSwitch(server.arg("enabled").c_str(),next)) {
@@ -427,11 +500,13 @@ void setup() {
     server.send(200,"application/json","{\"ok\":true}");
   });
   server.on("/api/mouse/calibrate", HTTP_POST, [](){
+    if(!guardRequest(true))return;
     if(!airMouse.active()) {server.send(409,"application/json","{\"error\":\"Enable Mouse Mode first\"}");return;}
     airMouse.recalibrate(millis());
     server.send(200,"application/json","{\"ok\":true}");
   });
   server.on("/api/mouse/config", HTTP_POST, [](){
+    if(!guardRequest(true))return;
     const String key=server.arg("key");const String value=server.arg("value");
     stach::mouse::Config next=airMouse.config;
     if(key=="sensitivity"){
@@ -457,6 +532,7 @@ void setup() {
     server.send(200,"application/json","{\"ok\":true}");
   });
   server.on("/api/mouse/click", HTTP_POST, [](){
+    if(!guardRequest(true))return;
 #ifdef STACH_WAVESHARE_BOARD
     const String b=server.arg("button");
     stach::mouse::Button button=stach::mouse::Button::None;
@@ -471,6 +547,7 @@ void setup() {
 #endif
   });
   server.on("/api/mouse/move", HTTP_POST, [](){
+    if(!guardRequest(true))return;
 #ifdef STACH_WAVESHARE_BOARD
     int8_t x=0,y=0;
     if(!stach::mouse::parseDelta(server.arg("dx").c_str(),x)||
@@ -484,6 +561,7 @@ void setup() {
 #endif
   });
   server.on("/api/mouse/scroll", HTTP_POST, [](){
+    if(!guardRequest(true))return;
 #ifdef STACH_WAVESHARE_BOARD
     const String dir=server.arg("direction");int8_t v=0,h=0;
     if(dir=="up")v=3;else if(dir=="down")v=-3;
@@ -495,7 +573,7 @@ void setup() {
     server.send(503,"application/json","{\"error\":\"BLE unavailable\"}");
 #endif
   });
-  server.onNotFound([](){server.send(404,"text/plain","Not found");});
+  server.onNotFound([](){if(!guardRequest(false))return;server.send(404,"text/plain","Not found");});
   server.begin();
   initialized = true;
   Serial.println("Stach AP: " + ssid);
@@ -505,6 +583,15 @@ void setup() {
 }
 void loop() {
   if (initialized) server.handleClient();
+  // Recover from a reset of the AP Wi-Fi mode without losing current settings.
+  const uint32_t wifiTick=millis();
+  if(initialized && uint32_t(wifiTick-lastApRecovery)>=20000){
+    lastApRecovery=wifiTick;
+    if(!apHealthy || WiFi.getMode()!=WIFI_AP || WiFi.softAPIP()!=IPAddress(192,168,4,1)){
+      if(startAccessPoint()) Serial.println("[WIFI] Stach AP restored");
+      else Serial.println("[WIFI] Recovery attempt failed; retry scheduled");
+    }
+  }
   const uint32_t tickMs=millis();
   pairing.tick(tickMs);
   const uint64_t uptimeMs=uint64_t(esp_timer_get_time())/1000ULL;

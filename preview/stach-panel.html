@@ -149,11 +149,30 @@
   const ease = t => { t=clamp(t,0,1); return t*t*(3-2*t); };
   function notify(message) {const t=$('toast');t.textContent=message;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2600);}
   function setConnection(ok) { online=ok; $('connection').className='chip '+(ok?'online':'offline');$('connectionText').textContent=demo?'Демо без устройства':(ok?'Подключено':'Нет связи'); }
+  // Token is RAM-only, fetched from the device same-origin on first command.
+  // It prevents cross-site forms from changing settings without user intent.
+  let controlToken='';
+  let tokenFlight=null;
+  async function getControlToken() {
+    if(controlToken)return controlToken;
+    if(!tokenFlight)tokenFlight=fetch('/api/session',{cache:'no-store',credentials:'same-origin'})
+      .then(async response=>{
+        if(!response.ok)throw new Error('Cannot start secure session');
+        const data=await response.json();
+        if(!/^[A-F0-9]{32}$/.test(data.token||''))throw new Error('Invalid session token');
+        controlToken=data.token;return controlToken;
+      }).finally(()=>{tokenFlight=null});
+    return tokenFlight;
+  }
   async function request(path, params) {
     if (demo) return {ok:true,body:{},status:200};
     const url = path + (params ? '?' + new URLSearchParams(params).toString() : '');
     const abort = new AbortController();const timer=setTimeout(()=>abort.abort(),3500);
-    try {const response=await fetch(url,{method:params?'POST':'GET',signal:abort.signal,cache:'no-store'});
+    try {
+      const modifying=params!==undefined;
+      const headers=modifying?{'X-Stach-Token':await getControlToken()}:{};
+      const response=await fetch(url,{method:modifying?'POST':'GET',headers,signal:abort.signal,cache:'no-store'});
+      if(response.status===403)controlToken='';
       const raw=await response.text();let body={};try{body=JSON.parse(raw)}catch(_){body={message:raw}}
       setConnection(true);return {ok:response.ok,body,status:response.status};
     } catch(e) {setConnection(false);return {ok:false,body:{message:'Нет связи со Stach'},status:0}}

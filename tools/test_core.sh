@@ -39,3 +39,6 @@ c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/power_test.cpp -o .build/pow
 
 c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/modes_test.cpp -o .build/modes_test
 .build/modes_test
+
+c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/security_test.cpp -o .build/security_test
+.build/security_test
