@@ -9,12 +9,14 @@
 #include "stach_behavior.h"
 #include "stach_touch.h"
 #include "stach_motion.h"
+#include "stach_pairing.h"
 #include <esp_timer.h>
 #ifdef STACH_WAVESHARE_BOARD
 #include "stach_hardware.h"
 #include "stach_display.h"
 #include "stach_imu.h"
 #include "stach_touch_hal.h"
+#include "stach_qr_display.h"
 #endif
 
 static WebServer server(80);
@@ -25,6 +27,8 @@ static stach::character::Controller character;
 static stach::behavior::Engine behavior;
 static uint64_t manualUntil=0;
 static char qrPayload[128] = {};
+static char portalUrl[64] = {};
+static stach::pairing::Controller pairing;
 static bool initialized = false;
 static stach::motion::Tilt tilt;
 static stach::motion::Gaze gestureGaze;
@@ -33,6 +37,7 @@ static stach::touch::Gesture lastGesture=stach::touch::Gesture::None;
 static uint32_t lastGestureAt=0;
 #ifdef STACH_WAVESHARE_BOARD
 static bool faceDisplayReady = false;
+static stach::pairing::Screen drawnScreen = stach::pairing::Screen::Portal;
 static stach::imu::Driver imu;
 static bool imuReady=false;
 static stach::touch::Driver touchDriver;
@@ -81,7 +86,12 @@ button.active{border-color:#fff;background:#444}p{color:#bbb}
 <div class="preview" aria-label="Матовые белые глаза на чёрном фоне">
 <div class="face neutral" id="face"><div class="brow left"></div><div class="brow right"></div>
 <div class="eye left"><div class="pupil"></div></div><div class="eye right"><div class="pupil"></div></div>
-</div></div><div id="buttons"></div><p id="status" role="status"></p><p id="sensorStatus" aria-live="polite">Сенсор: ожидание данных</p>
+</div></div><div id="buttons"></div>
+<div><button onclick="setPairing('wifi')">QR Wi-Fi на Stach</button>
+<button onclick="setPairing('portal')">QR панели на Stach</button>
+<button onclick="setPairing('face')">Вернуть глаза</button></div>
+<p id="pairingStatus">Подключение: ожидание</p>
+<p id="status" role="status"></p><p id="sensorStatus" aria-live="polite">Сенсор: ожидание данных</p>
 <script>
 const names=['neutral','angry','sleepy','curious','happy'];
 const face=document.getElementById('face'),status=document.getElementById('status');
@@ -120,7 +130,13 @@ async function refreshStatus(){try{
  'Касание: '+(s.touchReady?'подключено':'недоступно')+
  ' · Жест: '+s.lastGesture+
  ' · Наклон: '+(s.imuReady?(Number(s.tiltX).toFixed(2)+', '+Number(s.tiltY).toFixed(2)):'недоступен');
+ document.getElementById('pairingStatus').textContent=
+ 'Экран: '+(s.pairingScreen||'face')+' · Сеть: '+(s.ssid||'Stach')+' · '+(s.ip||'192.168.4.1');
  }catch(e){document.getElementById('sensorStatus').textContent='Нет связи с устройством';}}
+async function setPairing(mode){
+ try {const r=await fetch('/api/pairing?mode='+encodeURIComponent(mode),{method:'POST'});
+ document.getElementById('pairingStatus').textContent=await r.text();}
+ catch(e){document.getElementById('pairingStatus').textContent='Нет связи с устройством';}}
 refreshStatus();setInterval(refreshStatus,1500);
 </script></html>)HTML";
 
@@ -164,11 +180,20 @@ void setup() {
     Serial.println("Invalid QR payload"); return;
   }
   WiFi.mode(WIFI_AP);
+  // Fixed link-local AP address makes the portal QR reliable.
+  if (!WiFi.softAPConfig(IPAddress(192,168,4,1),IPAddress(192,168,4,1),IPAddress(255,255,255,0))) {
+    Serial.println("Wi-Fi AP address configuration failed"); return;
+  }
   if (!WiFi.softAP(ssid.c_str(), password.c_str())) {Serial.println("Wi-Fi AP failed"); return;}
+  const String address = String("http://") + WiFi.softAPIP().toString() + "/";
+  if (address.length() >= sizeof(portalUrl)) {Serial.println("Portal URL too long"); return;}
+  address.toCharArray(portalUrl,sizeof(portalUrl));
   server.on("/", HTTP_GET, [](){server.send_P(200,"text/html; charset=utf-8",page);});
   server.on("/api/status", HTTP_GET, [](){
     String body = String("{\"name\":\"Stach\",\"expression\":\"") + stach::emotionName(character.current) +
-      "\",\"ip\":\"" + WiFi.softAPIP().toString() + "\",\"chargingKnown\":" +
+      "\",\"ip\":\"" + WiFi.softAPIP().toString() + "\",\"ssid\":\"" + ssid +
+      "\",\"pairingScreen\":\"" + stach::pairing::name(pairing.screen) +
+      "\",\"chargingKnown\":" +
       (behavior.chargingKnown?"true":"false") +
       ",\"touchReady\":" +
 #ifdef STACH_WAVESHARE_BOARD
@@ -198,17 +223,28 @@ void setup() {
     manualUntil=uint64_t(esp_timer_get_time())/1000ULL+8000; // 8-second manual preview override
     server.send(200,"text/plain",String("Expression: ")+stach::emotionName(character.current));
   });
+  // AP clients can ask the physical Stach to display a QR code.
+  // Never return the persistent Wi-Fi password over /api/status.
+  server.on("/api/pairing", HTTP_POST, [](){
+    stach::pairing::Screen next;
+    if(!stach::pairing::parseScreen(server.arg("mode").c_str(),next)){
+      server.send(400,"text/plain","Invalid pairing screen");return;
+    }
+    pairing.show(next,millis());
+    server.send(200,"text/plain",String("Stach screen: ")+stach::pairing::name(pairing.screen));
+  });
   server.onNotFound([](){server.send(404,"text/plain","Not found");});
   server.begin();
   initialized = true;
   Serial.println("Stach AP: " + ssid);
-  Serial.println("Stach Wi-Fi password: " + password);
-  Serial.println("Wi-Fi QR payload: " + String(qrPayload));
-  Serial.println("Open http://192.168.4.1 after joining Stach Wi-Fi");
+  // Intentionally avoid leaking the persistent password in serial logs.
+  Serial.println("Open " + String(portalUrl) + " after joining Stach Wi-Fi");
+  Serial.println("Long-press Stach's display to show the Wi-Fi QR, tap for portal QR.");
 }
 void loop() {
   if (initialized) server.handleClient();
   const uint32_t tickMs=millis();
+  pairing.tick(tickMs);
   const uint64_t uptimeMs=uint64_t(esp_timer_get_time())/1000ULL;
 #ifdef STACH_WAVESHARE_BOARD
   static uint64_t lastImuMs=0;
@@ -231,8 +267,11 @@ void loop() {
       const stach::touch::Event event=touchRecognizer.feed(point,tickMs);
       if(event.kind!=stach::touch::Gesture::None){
         lastGesture=event.kind;lastGestureAt=tickMs;
-        gestureGaze.event(event.kind,tickMs);
-        behavior.touch(uptimeMs); // touch-triggered curiosity, not random emotion
+        const bool changedPairing = pairing.gesture(event.kind,tickMs);
+        if(!changedPairing && pairing.screen==stach::pairing::Screen::Face) {
+          gestureGaze.event(event.kind,tickMs);
+          behavior.touch(uptimeMs); // only on face, not on QR screen
+        }
         Serial.printf("[TOUCH] %s (%d,%d)\n",stach::touch::name(event.kind),event.x,event.y);
       }
     }else if(uint32_t(tickMs-lastTouchValidAt)>250){
@@ -247,12 +286,21 @@ void loop() {
 #ifdef STACH_WAVESHARE_BOARD
   static uint32_t lastFrame=0;
   const uint32_t now=millis();
-  if(faceDisplayReady && (uint32_t)(now-lastFrame)>=100) {
-    lastFrame=now;
-    AmoledSurface surface;
-    stach::face::State frame=character.sample(now);
-    gestureGaze.apply(frame,now,tilt);
-    stach::face::draw(surface,frame);
+  if(faceDisplayReady) {
+    if(pairing.screen != stach::pairing::Screen::Face) {
+      if(pairing.screen != drawnScreen) {
+        const char* contents = pairing.screen==stach::pairing::Screen::Wifi ? qrPayload : portalUrl;
+        if(!stach::pairing::renderCode(contents,pairing.screen)) stach::pairing::renderFailure();
+        drawnScreen=pairing.screen;
+      }
+    } else if(drawnScreen != stach::pairing::Screen::Face || (uint32_t)(now-lastFrame)>=100) {
+      lastFrame=now;
+      drawnScreen=stach::pairing::Screen::Face;
+      AmoledSurface surface;
+      stach::face::State frame=character.sample(now);
+      gestureGaze.apply(frame,now,tilt);
+      stach::face::draw(surface,frame);
+    }
   }
 #endif
   delay(2);

@@ -1,51 +1,54 @@
-# STACH — Stage 5: Touch + Gestures + IMU (standard Waveshare 1.43 / 1.43-B)
+# STACH — Stage 6: Wi-Fi QR onboarding
 
-Minimal round AMOLED companion. Design remains: flat black, exactly two white anti-aliased eyes and black pupils, **no highlights/glow**, neutral eyes even and equal-size, eyebrows **only** when expressing an emotion; no surprised expression.
+Minimal companion on the Waveshare ESP32-S3 Touch AMOLED 1.43" (466 × 466). This archive **retains the centered, non-glowing eye style** and stage-5 touch and gesture firmware. This revision adds a physical QR screen and paired network/portal onboarding.
 
-## Eye centering correction (v3)
+## Phone pairing
 
-Previous Stage 5 moved the whole pair up to 47 pixels on a 466-pixel round screen.
-The browser gesture demo also retained the last swipe direction indefinitely.
-**Both issues are fixed.** The whole pair now moves just 18px for a glance
-(and at most 20px horizontally / 12px vertically, even after combined tilt and
-swipes). Pupils still look around; the nearer eye becomes subtly larger.
-The updated browser gesture demonstration automatically recenters after 1.6s.
-This central-area restriction is enforced in the renderer itself, not just in
-preview code. All brows still appear only with emotions; flat-white eyes remain
-without glow. Fixed versions of all preview animations are included.
+1. Boot the Stach board. It starts an independent WPA2 Wi-Fi network named `Stach-XXXXXX` with an individual 16-character random hexadecimal password stored in ESP32 NVS.
+2. **Long-press** Stach's touchscreen (~650 ms) on the eye screen to reveal the **Wi-Fi QR**. Scan it using your phone's camera and choose to join the network. A phone can report **"No Internet"**: that's normal, because this local access point has no internet uplink.
+3. **Tap** Stach once to show the **portal QR** containing the actual web address (normally `http://192.168.4.1/`). Scan it or type the URL into your browser **while connected to Stach Wi-Fi**.
+4. Tap to switch the two QR codes, double-tap or long-press to return to the eyes. The QR screen closes automatically after 90 seconds without an interaction.
+5. Once connected, the web page also has three remote controls: display Wi-Fi QR, display portal QR, return to face. This works only after your phone has already joined the Stach Wi-Fi network.
 
-## Stage 5 changes
+Some mobile operating systems will **not automatically open a browser after joining Wi-Fi** from a QR. This is why the second code exists. The two QR codes are intentionally distinct. Never rely on the phone having an internet connection to Stach.
 
-- `include/stach_touch.h`: independent FT3168/FT6146 register decoding and gesture recognizer, no Arduino dependencies. Outputs `tap`, `double_tap`, `long_press`, `swipe_left/right/up/down`.
-- `include/stach_touch_hal.h`: I2C touch read on the **existing shared Wire bus**, at 0x38; controller read via registers 0x02–0x06 every 20 ms. Failed I2C reads are not treated as taps.
-- `include/stach_motion.h`: acceleration-based tilt smoothing, safe rejection of freefall/impact samples, temporary and smoothly released gaze in response to swipes. Raw gyro data is also available for future Bluetooth HID mouse mode.
-- `include/stach_imu.h`: QMI8658 acceleration **and** gyroscope reads, from 12-byte axis register block at 0x35, with enabled 6DOF and little-endian autoincrement. Requires hardware orientation/range calibration before release.
-- `src/main.cpp`: hardware touch/IMU poll, event-driven curious reaction, eye glance feedback, `GET /api/status` now reports `touchReady`, `imuReady`, `lastGesture`, `lastGestureMs`, `tiltX`, `tiltY`, `gyroX/Y/Z`. `network-prototype` continues to work (sensor availability false). Existing web UI displays sensor status.
-- `test/touch_gestures_test.cpp`: portable unit tests for touch protocol, gesture classification, rollover, motion filtering and gaze.
-- `preview/stach-touch-gestures.html`: standalone browser visual demonstration. **Simulation**, not physical hardware; JS gestures are independent of C++.
+## QR specifications
 
-## Behavior
+- Uses `ricmoo/QRCode@0.0.1` for QR matrix generation. MIT license: https://github.com/ricmoo/QRCode
+- QR **version 7, ECC medium**, fixed 45 × 45 modules and true 4-module white quiet zone.
+- Positive black-on-white, 5-pixel square module = 265 px outer square centered at (100,100) on the 466 × 466 circular display. All four corners are inside the circular panel.
+- The QR is redrawn **once per screen change**, not every animation frame. The eye engine resumes when closing the QR.
+- No server or internet request is required to construct or display a QR.
+- The saved per-device password is **not** included in HTTP `/api/status` or printed into USB serial logs. It is encoded in the on-device Wi-Fi QR only; anyone able to see that QR can join the local AP.
 
-- One finger tap, double tap, or long hold: causes *curious* reaction (because the user touched the device). Double tap also centers the gaze override.
-- One finger swipe: glances in its direction, then smoothly returns (gesture takes priority for 1.6 seconds).
-- Tilt (accelerometer): adds a small eye offset. Motion over 1.3g or under 0.75g is ignored by the tilt filter; freefall/impact detection in `stach_behavior.h` still handles *angry*.
-- Sensors are never claimed as connected when on the network-only build. No BLE mouse reports or QR UI are enabled in this stage.
-- The touch origin and axis direction assume rotation 0 and 466×466 as configured in `stach_display.h`. A real board may need axis inversion or swapping.
+## HTTP API
 
-## Build / test
+`GET /api/status`: includes non-secret `ssid`, `ip`, `pairingScreen`, sensors and expression.
 
-CI uses `.github/workflows/check.yml`: `sh tools/test_core.sh` and `pio run -e stach-network-prototype -e stach-waveshare-sh8601 -e stach-waveshare-co5300`.
+`POST /api/pairing?mode=wifi|portal|face`: display a pairing screen or resume the face (HTTP 400 on invalid mode). **The API is accessible to Wi-Fi clients on the local AP; it is not an internet-exposed authenticated service.** Do not attach untrusted users to the Stach AP.
 
-To run local pure C++ tests on Linux/macOS/WSL: `sh tools/test_core.sh`. To build full firmware after uploading through GitHub Desktop, open the new run in GitHub Actions. The last successful pre-stage-5 commit was `b8ff7eb6f906aff5f81fecc97f5b9b59fc0e301d`. The current archive must be uploaded for its own CI build to run.
+`POST /api/expression?value=neutral|angry|sleepy|curious|happy`: earlier expression override.
 
-**Important:** A 1.43C model has different components (including CST820 touch) and cannot use this firmware unchanged. Board-specific AMOLED, touch orientation, IMU axes and event thresholds remain subject to real hardware testing at the final integration step. Never drop the device on purpose to test impact detection.
+## Included files
 
-## Install via GitHub Desktop
+- `include/stach_pairing.h`: portable UI state machine, timeout and QR layout; native C++ tests.
+- `include/stach_qr_display.h`: QR encoder integration and QSPI panel rendering (hardware profiles only).
+- `src/main.cpp`: Wi-Fi+portal setup, HTTP pairing API, touch gestures, QR/face modes.
+- `platformio.ini`: adds QRCode dependency for both Waveshare profiles; network-only profile needs none.
+- `test/pairing_test.cpp`: 33 pairing/password/layout assertions.
+- `preview/qr-wifi-example.png`, `preview/qr-portal-example.png`: sample QR images with **fake demo credentials**; both decoded with OpenCV before packaging.
+- `preview/stach-pairing-preview.html`: offline clickable demonstration for Windows browser.
 
-Extract the **contents** of the archive into your existing cloned `stach` repository, replace files. GitHub Desktop: **Commit to main → Push origin**. Visit `https://github.com/leonidgg2323-code/stach/actions` to inspect the latest results. The connected GitHub API has allowed reading but returned HTTP 403 for writes; no remote commit is claimed.
+## Build and verification
 
-## Datasheet references
+Run portable tests with `sh tools/test_core.sh` on Linux/macOS/WSL. GitHub Actions additionally builds the three ESP32-S3 profiles on push (`stach-network-prototype`, `stach-waveshare-sh8601`, `stach-waveshare-co5300`). Once uploaded, open https://github.com/leonidgg2323-code/stach/actions to inspect the actual PlatformIO result.
 
-- Waveshare product: https://www.waveshare.com/product/esp32-s3-touch-amoled-1.43.htm
-- Waveshare documentation: https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.43/Arduino
-- QMI8658 register documentation: https://files.waveshare.com/wiki/common/QMI8658A_Datasheet_Rev_A.pdf
+**Verified in development**: native C++ tests, QR data & geometry checks, example QR decoding, JavaScript syntax checks and ZIP integrity. **Not verified in development**: full new PlatformIO firmware build, actual AMOLED output, physical touch gestures or phone scan on the real board. These require GitHub Actions and then hardware. The project-wide hardware validation stage remains at the end by request.
+
+## Board compatibility
+
+The current GPIO map and panel profiles target **Waveshare ESP32-S3-Touch-AMOLED-1.43 standard/B**, not the differently wired C model. Choose the real LCD controller profile (SH8601 or CO5300). Refer to Waveshare's PCB revision and schematic prior to flashing. A working USB power supply and display are needed to verify the QR in practice.
+
+## Upload via GitHub Desktop
+
+Copy the **contents** of this ZIP into your cloned `stach` folder, replacing files. Open GitHub Desktop -> Changes -> Commit to main -> Push origin. A green CI run verifies build, not the physical board. No need to upload zipped binary files to the repository.
