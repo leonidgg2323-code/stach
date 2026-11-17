@@ -1,65 +1,41 @@
-# STACH — Stage 8: Bluetooth HID Mouse
+# STACH — Stage 9: Battery & Power Saver
 
-Independent eye-companion project for **Waveshare ESP32-S3 Touch AMOLED 1.43** (standard / B). This archive contains the whole Stage 7 project plus Stage 8's **Bluetooth Low Energy HID mouse** implementation, rather than a standalone patch. Screen panel alternatives are available (`stach-waveshare-sh8601`, `stach-waveshare-co5300`) but physical compatibility depends on the exact board revision. Do **not** use these profiles for the 1.43C without checking the schematic.
-
-## CI fix — Arduino-ESP32 3.x and ESP32 BLE Mouse 0.3.1
-
-The Stage 8 GitHub Actions run `44053213095` failed because `t-vk/ESP32 BLE Mouse@0.3.1` passes C++ `std::string` values to Arduino-ESP32 3.x APIs accepting Arduino `String`. The portable core and network-only firmware were successful, but both hardware BLE builds failed.
-
-This revision includes `tools/patch_ble_mouse.py`, which patches **only the two known incompatible calls** in PlatformIO's installed dependency copies. The patched calls wrap `std::string::c_str()` in Arduino `String`. It is version-specific, idempotent, and refuses missing or changed source. Upstream T-vK source remains owned and downloaded by PlatformIO; this repository does not vendor/copy it.
-
-**Required build command:** `python tools/build_firmware.py` from the project root (needs `pio` on PATH). This command first installs declared dependencies, then patches the two `BleMouse.cpp` copies, and finally runs all three firmware builds. GitHub Actions uses the same command. **Do not use plain `pio run` on a clean machine** for the hardware BLE profiles without running the compatibility patch first, or the original library type errors will recur. After a dependency reinstall, run the wrapper again.
-
-The patch has host tests: `python tools/test_ble_patch.py`. A green GitHub Actions build shows compile success but does not guarantee that pairing and mouse controls work on real hardware.
+**Target hardware:** Waveshare ESP32-S3-Touch-AMOLED-1.43 / compatible 1.43B configuration (SH8601 and CO5300 build profiles). **Not** the 1.43C variant; that is a different board. This is an extension of Stage 8, not a replacement.
 
 ## New features
 
-- **Stach Mouse**: BLE HID mouse reports sent directly to the paired Windows/Mac/Linux computer; **no desktop helper app** is needed (computer must support BLE). Pair in Windows **Settings → Bluetooth & devices → Add device → Bluetooth → Stach Mouse**.
-- Explicit opt-in: **swipe up** on Stach's face to enter Mouse Mode, or tap **Enable mouse** in its Wi-Fi control panel. **Long press** on the display (650 ms) to leave Mouse Mode, or turn it off in the panel. No HID input is generated while Mouse Mode is off or Bluetooth is disconnected. This does not require the PC to join the Stach Wi-Fi network.
-- First pairing: after enabling Mouse Mode, look for Bluetooth device `Stach Mouse`. Once paired, put Stach on a flat, still surface or hold completely still for roughly 48 consecutive IMU samples (~1 s) while the built-in gyroscope calibrates. The screen displays status `HOLD DEVICE STILL` until calibration finishes.
-- **Air mouse:** turn/tilt Stach to move the cursor. Default horizontal axis: gyroscope Z; vertical axis: gyroscope X. You can switch horizontal axis Z→Y, invert X/Y, and change sensitivity (0.5×–4×) in the web panel. Exact axis orientation must be calibrated with the **real** board.
-- **Touch gestures in Mouse Mode:** single tap = left click, double tap = right click, swipe up/down = vertical scrolling, swipe left/right = horizontal scrolling, long press = return to face. Single-tap action occurs *after* a ~350 ms double-tap disambiguation window. No accidental click before a second tap.
-- **Phone control:** the Stach panel at `http://192.168.4.1/` has on/off, status, calibration, click buttons, wheel buttons, and a small touchpad that forwards relative cursor motion to BLE. Phone must join Stach's own Wi-Fi AP; only a paired BLE computer receives inputs.
-- Cursor safety: gyroscope bias calibration, dead zone, low-pass smoothing, bounded velocities and per-update HID deltas, no jumps after reconnection or stalled sampling.
+1. Top-of-face battery icon drawn directly on the 466 × 466 AMOLED. Shows `?` when battery capacity cannot be trusted. After calibration, it shows an **approximate** percentage. The neutral eyes stay matte white with black pupils and no eyebrows, and gaze movement stays in the center.
+2. `BAT_ADC` GPIO4 readings using `analogReadMilliVolts` (5 samples, median, then exponential low-pass filter). The ADC voltage alone is **not** automatically classified as battery voltage or battery percentage. USB/system measurements must not be misrepresented as cell charge.
+3. User-driven calibration, optional and potentially unsafe if done with wrong assumptions: **only** after checking the specific revision's schematic and with a multimeter verifying that GPIO4 tracks the **cell voltage**, measure battery millivolts, use the web control panel's advanced calibration field, and save the ADC-to-cell factor in NVS. Any percent is merely a **voltage-based estimate**, NOT a fuel-gauge measurement or precise SoC reading. If uncertain, **do not calibrate**; `?` is the safe behavior.
+4. Power-saving policy, enabled by default: 10 Hz face updates initially, 2.5 Hz after 45 seconds with no real interaction, black AMOLED face after 5 minutes idle. With known charge ≤15%, these intervals shorten to 10 seconds and 2 minutes. Touch or a POST from the phone wakes the face. Mouse and QR screens remain awake, as does a verified active charging animation. BLE and Wi-Fi remain active; this is **not hardware deep sleep** and does not claim a measured battery-runtime improvement.
+5. New local API: `POST /api/power/saver?enabled=0|1`, `POST /api/power/wake`, `POST /api/power/calibrate?cellMv=3900`. `GET /api/status` now includes `batteryAdcMv`, `batteryMv`, `batteryCalibrated`, `screenMode`, and `powerSaver`. The web panel includes a new energy card, on-demand wake, optional manual calibration, live voltage indicators, and a battery percentage only when valid.
+6. Charging status is **UNKNOWN by default**, even when connected to a computer. Therefore no automatic cheerful charging reaction or green charging sweep is falsely activated. Hardware charging-status detection is optional via a verified `STACH_CHARGE_STATUS_PIN` build flag (active-low), NOT enabled on the default standard board. Never assign an arbitrary pin based on the charge LED. When a real charger status signal is later wired and verified, the existing charging emotion and animation activate automatically. The 'sleepy after a long time not charged' behavior is now gated on known charging status, so it will not activate solely because charging detection is missing.
+7. Previous controls, mouse, gestures, QR and eyes are retained.
 
-## Technical approach
+## Important limitations
 
-`include/stach_mouse.h` implements portable (host-testable) state, calibration, relative motion calculations and gesture-action mapping. `include/stach_ble_mouse.h` owns the Arduino BLE HID transport, using the PlatformIO `t-vk/ESP32 BLE Mouse@0.3.1` dependency. `include/stach_mouse_ui.h` draws the mouse mode on the circular AMOLED. `src/main.cpp` integrates BLE, QMI8658 readings, FT3168 touch gesture events and Wi-Fi APIs. `web/stach-panel.html` and `include/stach_web.h` (generated) contain exactly the same phone panel as `preview/stach-panel.html`.
+- **No physical Waveshare or Li-ion battery was connected during this stage.** The battery divider source and exact charger pin must be validated on the specific hardware revision. The wiki lists `BAT_ADC` GPIO4 and a charge indicator but its ADC demo measures *system voltage (~4.9V when USB-powered)*. That demo does not establish precise lithium SoC.
+- No safe/verified display brightness control is implemented. The generic Arduino_GFX pointer lacks `setBrightness`. The energy saver reduces redraws and shows black pixels; a real AMOLED standby command, BLE duty cycle optimization, RTC wake, power-rail changes, and battery calibration belong to final hardware integration. Display blacking alone must not be called deep sleep.
+- Charging, battery percentage and power consumption measurements **cannot be asserted as working on the board** without physical test.
+- The standard board's GPIO4 and I2C pin assignments are not suitable for the distinct 1.43C hardware variant.
 
-Bluetooth starts **lazily**, on the first entry into Mouse Mode. In `ESP32 BLE Mouse 0.3.1`, `BleMouse::end()` is a no-op; BLE advertising may continue when you exit mouse mode. **All HID send methods are individually gated by `engine.active()` and connection state**. Rebooting Stach exits Mouse Mode completely. A future lifecycle stage can replace the BLE stack if stopping advertising is needed.
+## Testing
 
-## Builds and testing
+- `sh tools/test_core.sh` — all portable tests including Stage 9 battery interpolation, calibration rules, filtering and 32-bit time-wrap-safe saver policy.
+- `python3 tools/check_panel.py` — embedded web page and API names; `python3 tools/test_ble_patch.py` — BLE library compatibility patch tests.
+- `python3 tools/browser_smoke.py` — optional full Chromium UI smoke, screenshots at 390 × 844 and 1280 × 900 (requires installed Playwright and Chromium).
+- `python3 tools/build_firmware.py` — installs dependencies and builds network, SH8601 and CO5300 profiles under PlatformIO, including the Stage-8 BLE compatibility patch. GitHub Actions executes this on push.
+- An extra local `g++ -fsyntax-only` check was run for all three profiles using lightweight **mock Arduino APIs** (not a real ESP32 toolchain); these mocks are deliberately *not* shipped as production source.
 
-- `sh tools/test_core.sh` runs the existing tests and new **mouse policy** tests on host C++17.
-- `python3 tools/check_panel.py` checks the embedded panel, JS syntax and endpoint references.
-- `pio run -e stach-network-prototype -e stach-waveshare-sh8601 -e stach-waveshare-co5300` is the PlatformIO build check in `.github/workflows/check.yml`.
-- In the extracted ZIP, double click `preview/stach-panel.html` to try offline demo controls. The demo cannot actually move your PC cursor.
-- No full PlatformIO build or on-device Bluetooth pairing tests were performed **at the time of packaging**. GitHub Actions will check full compilation after you push, and the real device and Windows pairing still require hardware verification. Do not intentionally drop the hardware to test fall detection.
+## Install with GitHub Desktop
 
-### Source-to-release workflow with GitHub Desktop
-
-1. Extract the **contents** of this ZIP into the cloned `stach` repository root; replace older files.
-2. In GitHub Desktop commit e.g. `Stage 8: BLE HID Mouse`, then click **Push origin**.
-3. Open `https://github.com/leonidgg2323-code/stach/actions` and check the new three-profile build. If it fails, share the job's compiler error (not just the red cross).
-4. Choose the exact AMOLED controller corresponding to your board revision before flashing. Physical BLE, calibration and display are not verified by passing cloud compilation alone.
-
-## REST interface (from the Stach Wi-Fi AP only)
-
-All changing requests use `POST`; the local AP password is the initial access boundary. Do **not** expose the control panel to the internet.
-
-| URL | Form fields | Effect |
-|---|---|---|
-| `/api/status` | GET | Includes `mouseMode`, `mouseBleStarted`, `mouseConnected`, `mouseCalibrated`, sensitivity and orientation settings |
-| `/api/mouse/mode` | `enabled=1` or `0` | Enable or disable Mouse Mode. Prototype board returns HTTP 503. |
-| `/api/mouse/calibrate` | (none) | Reset gyro calibration; requires Mouse Mode. |
-| `/api/mouse/config` | `key=sensitivity&value=1.25` | Save sensitivity 0.5–4.0 |
-| `/api/mouse/config` | `key=invertX|invertY|axisYX&value=0|1` | Save axis mapping / inversion |
-| `/api/mouse/click` | `button=left|right|middle` | BLE click, only when enabled and connected |
-| `/api/mouse/scroll` | `direction=up|down|left|right` | BLE scroll; only when enabled and connected |
-| `/api/mouse/move` | `dx=-40..40&dy=-40..40` | Relative BLE movement; only when enabled and connected |
-
-**Known limitations:** no verified on-device calibration yet; sensor mounting orientation may need inversion. The old BLE library doesn't stop advertising on exit. BLE HID bonding is delegated to the library/OS, not an independent authorization protocol. The phone's local HTTP endpoints are not hardened against a malicious page running on an already-connected network; keep Stach's Wi-Fi password private and don't port-forward the AP. Battery measurement and charging detection are still pending later stages.
+1. Unzip the **contents** of this archive into the existing local `stach` repository folder, replacing files. Keep the `.github` folder and all project directories.
+2. In GitHub Desktop select `Commit to main`, then `Push origin`.
+3. Watch the GitHub Actions `Stach core checks` run. Green tests and a full green firmware build confirm compilability, **not physical board function**.
+4. Device programming and battery/charger calibration remain in the final hardware-verification stage.
 
 ## Credits
 
-Uses [T-vK/ESP32-BLE-Mouse](https://github.com/T-vK/ESP32-BLE-Mouse), a third-party library. Stach remains an independent project inspired by eye companions, including [Pip-KeyPet](https://github.com/NovikovVisuals/Pip-KeyPet); no code from that project is included.
+Independent Stach firmware concept inspired by the Pip-KeyPet genre. Core code developed for Stach; retains prior project attributions and no third-party BLE libraries are included verbatim. The patched BLE Mouse 0.3.1 is installed by PlatformIO and adapted by `tools/patch_ble_mouse.py`.
+
+Reference: <https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.43>

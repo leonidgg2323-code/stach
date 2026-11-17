@@ -20,6 +20,15 @@ with sync_playwright() as p:
         page.wait_for_function("document.getElementById('pairingLabel').textContent.includes('Wi-Fi QR')")
         page.locator('#idleMotion').evaluate('(el) => el.click()')
         assert not page.locator('#idleMotion').is_checked()
+        assert page.locator('#batteryPower').inner_text() == 'Не определена'
+        page.locator('#powerSaver').evaluate('(el) => el.click()')
+        assert not page.locator('#powerSaver').is_checked()
+        page.locator('#wakeScreen').click()
+        assert page.locator('#screenMode').inner_text() == 'Активный'
+        page.locator('#powerPanel details summary').click()
+        page.locator('#calibrationMv').fill('3900')
+        page.locator('#calibrateBattery').click()
+        assert page.locator('#batteryPower').inner_text() == '63%'
         page.locator('[data-demo="charging"]').click()
         page.wait_for_function("document.getElementById('screen').classList.contains('charging')")
         joy=page.locator('#joystick');joy.scroll_into_view_if_needed();r=joy.bounding_box()

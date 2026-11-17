@@ -33,3 +33,6 @@ c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/control_test.cpp -o .build/c
 
 c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/mouse_test.cpp -o .build/mouse_test
 .build/mouse_test
+
+c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/power_test.cpp -o .build/power_test
+.build/power_test

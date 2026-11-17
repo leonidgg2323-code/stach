@@ -42,7 +42,7 @@ struct Engine {
   Emotion choose(uint64_t now) const {
     if(now<angryUntil)return Emotion::Angry;
     if(chargingKnown&&charging)return Emotion::Happy;
-    if((batteryKnown&&batteryPercent<=12) || (now>=lastChargeMs&&now-lastChargeMs>=sleepyAfterMs))return Emotion::Sleepy;
+    if((batteryKnown&&batteryPercent<=12) || (chargingKnown && !charging && now>=lastChargeMs && now-lastChargeMs>=sleepyAfterMs))return Emotion::Sleepy;
     if(now<curiousUntil)return Emotion::Curious;
     return Emotion::Neutral;
   }

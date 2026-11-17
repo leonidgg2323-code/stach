@@ -12,6 +12,7 @@
 #include "stach_pairing.h"
 #include "stach_control.h"
 #include "stach_mouse.h"
+#include "stach_power.h"
 #include "stach_web.h"
 #include <esp_timer.h>
 #ifdef STACH_WAVESHARE_BOARD
@@ -22,6 +23,8 @@
 #include "stach_qr_display.h"
 #include "stach_ble_mouse.h"
 #include "stach_mouse_ui.h"
+#include "stach_power_hal.h"
+#include "stach_power_ui.h"
 #endif
 
 static WebServer server(80);
@@ -38,6 +41,8 @@ static stach::control::Settings settings;
 static stach::mouse::Engine airMouse;
 static stach::control::RemoteGaze remoteGaze;
 static bool initialized = false;
+static stach::power::Meter batteryMeter;
+static stach::power::Saver saver;
 static stach::motion::Tilt tilt;
 static stach::motion::Gaze gestureGaze;
 static stach::motion::Sample lastMotion;
@@ -45,6 +50,7 @@ static stach::touch::Gesture lastGesture=stach::touch::Gesture::None;
 static uint32_t lastGestureAt=0;
 #ifdef STACH_WAVESHARE_BOARD
 static bool faceDisplayReady = false;
+static bool wasScreenDark=false;
 static stach::ble::Adapter hidMouse;
 static bool mouseScreenShown=false;
 static uint32_t lastMouseScreen=0;
@@ -113,6 +119,7 @@ static String newPassword() {
 void setup() {
   Serial.begin(115200);
   behavior.begin(uint64_t(esp_timer_get_time())/1000ULL);
+  saver.activity(millis());
 #ifdef STACH_WAVESHARE_BOARD
   // Non-destructive hardware diagnostics: does not toggle AMOLED power/reset.
   stach::hardware::logProbe(stach::hardware::probe());
@@ -121,10 +128,13 @@ void setup() {
   faceDisplayReady = displayReady;
   imuReady=imu.begin();
   Serial.printf("[IMU] Accelerometer+gyro: %s\n",imuReady?"OK":"not available");
+  stach::power::beginHardware();
   touchReady=touchDriver.begin();
   Serial.printf("[TOUCH] FT3168/FT6146 0x38: %s\n",touchReady?"OK":"not available");
 #endif
   if (!preferences.begin("stach", false)) {Serial.println("NVS unavailable"); return;}
+  batteryMeter.configure(preferences.getFloat("batRatio",0.0f));
+  saver.enabled = preferences.getBool("psaver",true);
   settings.idleMotion = preferences.getBool("idle", true);
   settings.tiltEnabled = preferences.getBool("tilt", true);
   stach::mouse::Config mouseConf;
@@ -169,6 +179,11 @@ void setup() {
       ",\"charging\":" + (behavior.charging?"true":"false") +
       ",\"batteryKnown\":" + (behavior.batteryKnown?"true":"false") +
       ",\"batteryPercent\":" + (behavior.batteryKnown?String(behavior.batteryPercent):String("null")) +
+      ",\"batteryAdcMv\":" + (batteryMeter.adcMilliVolts>0?String(batteryMeter.adcMilliVolts):String("null")) +
+      ",\"batteryMv\":" + (batteryMeter.known()?String(batteryMeter.batteryMilliVolts):String("null")) +
+      ",\"batteryCalibrated\":" + (stach::power::validRatio(batteryMeter.ratio)?"true":"false") +
+      ",\"powerSaver\":" + (saver.enabled?"true":"false") +
+      ",\"screenMode\":\"" + stach::power::modeName(saver.current) + "\"" +
       ",\"touchReady\":" +
 #ifdef STACH_WAVESHARE_BOARD
       (touchReady?"true":"false") +
@@ -217,6 +232,7 @@ void setup() {
     server.send(200,"application/json; charset=utf-8",body);
   });
   server.on("/api/expression", HTTP_POST, [](){
+    saver.activity(millis());
     stach::Emotion next = stach::parseEmotion(server.arg("value").c_str());
     if (next == stach::Emotion::Invalid) {server.send(400,"text/plain","Invalid expression");return;}
     character.set(next,millis());
@@ -226,6 +242,7 @@ void setup() {
   // AP clients can ask the physical Stach to display a QR code.
   // Never return the persistent Wi-Fi password over /api/status.
   server.on("/api/pairing", HTTP_POST, [](){
+    saver.activity(millis());
     stach::pairing::Screen next;
     if(!stach::pairing::parseScreen(server.arg("mode").c_str(),next)){
       server.send(400,"text/plain","Invalid pairing screen");return;
@@ -236,6 +253,7 @@ void setup() {
   });
   // A short-lived, bounded remote gaze. Values are normalized [-1, 1].
   server.on("/api/gaze", HTTP_POST, [](){
+    saver.activity(millis());
     float x=0, y=0;
     if(!stach::control::parseAxis(server.arg("x").c_str(), x) ||
        !stach::control::parseAxis(server.arg("y").c_str(), y) ||
@@ -267,9 +285,48 @@ void setup() {
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json","{\"ok\":true}");
   });
+  // Power saving can be toggled independently of BLE, gaze and touch.
+  server.on("/api/power/saver", HTTP_POST, [](){
+    bool enabled=false;
+    if(!stach::control::parseSwitch(server.arg("enabled").c_str(),enabled)){
+      server.send(400,"application/json","{\"error\":\"Invalid enabled value\"}");return;
+    }
+    if(preferences.putBool("psaver",enabled)!=1){
+      server.send(500,"application/json","{\"error\":\"NVS write failed\"}");return;
+    }
+    saver.enabled=enabled;saver.activity(millis());
+    server.send(200,"application/json","{\"ok\":true}");
+  });
+  server.on("/api/power/wake", HTTP_POST, [](){
+    saver.activity(millis());
+    server.send(200,"application/json","{\"ok\":true}");
+  });
+  // Not an automatic calibration: user must FIRST verify with a multimeter
+  // that BAT_ADC tracks the real lithium CELL on the exact board revision.
+  server.on("/api/power/calibrate", HTTP_POST, [](){
+#ifdef STACH_WAVESHARE_BOARD
+    const String value=server.arg("cellMv");
+    if(value.length()<4 || value.length()>4){server.send(400,"application/json","{\"error\":\"Invalid measured voltage\"}");return;}
+    for(unsigned i=0;i<value.length();++i)if(value[i]<'0'||value[i]>'9'){
+      server.send(400,"application/json","{\"error\":\"Digits only\"}");return;
+    }
+    float ratio=0;
+    if(!stach::power::Meter::measuredRatio(value.toInt(),batteryMeter.adcMilliVolts,ratio)){
+      server.send(400,"application/json","{\"error\":\"ADC or measured cell voltage invalid\"}");return;
+    }
+    if(preferences.putFloat("batRatio",ratio)!=sizeof(float)){
+      server.send(500,"application/json","{\"error\":\"NVS write failed\"}");return;
+    }
+    batteryMeter.configure(ratio);saver.activity(millis());
+    server.send(200,"application/json","{\"ok\":true,\"note\":\"Voltage-derived percentage is approximate\"}");
+#else
+    server.send(503,"application/json","{\"error\":\"No battery ADC\"}");
+#endif
+  });
   // BLE control commands are only accepted from local Wi-Fi AP clients.
   // No automatic HID action on boot; no HID action without mouse mode+BLE link.
   server.on("/api/mouse/mode", HTTP_POST, [](){
+    saver.activity(millis());
     bool next=false;
     if(!stach::control::parseSwitch(server.arg("enabled").c_str(),next)) {
       server.send(400,"application/json","{\"error\":\"Invalid mode\"}");return;
@@ -362,6 +419,15 @@ void loop() {
   pairing.tick(tickMs);
   const uint64_t uptimeMs=uint64_t(esp_timer_get_time())/1000ULL;
 #ifdef STACH_WAVESHARE_BOARD
+  static uint32_t lastBatteryPoll=0;
+  if(uint32_t(tickMs-lastBatteryPoll)>=4000){
+    lastBatteryPoll=tickMs;
+    batteryMeter.observe(stach::power::adcSampleMilliVolts());
+    behavior.battery(batteryMeter.known()?batteryMeter.batteryPercent:-1);
+    bool charging=false;
+    const bool chargingKnown=stach::power::readCharging(charging);
+    behavior.charge(chargingKnown,charging,uptimeMs);
+  }
   airMouse.link(hidMouse.connected(),tickMs);
   static uint64_t lastImuMs=0;
   if(imuReady && uptimeMs-lastImuMs>=20){
@@ -380,6 +446,7 @@ void loop() {
     lastTouchPoll=tickMs;
     stach::touch::Point point;
     if(touchDriver.read(point)){
+      if(point.down && !touchRecognizer.pressed())saver.activity(tickMs);
       lastTouchValidAt=tickMs;
       const stach::touch::Event event=touchRecognizer.feed(point,tickMs);
       if(event.kind!=stach::touch::Gesture::None){
@@ -407,10 +474,16 @@ void loop() {
     character.set(behavior.choose(uptimeMs),tickMs,behavior.showCharging());
   }
   character.tick(tickMs);
+  saver.tick(tickMs,airMouse.active() || behavior.showCharging() || pairing.screen!=stach::pairing::Screen::Face,
+             batteryMeter.known(),batteryMeter.batteryPercent);
 #ifdef STACH_WAVESHARE_BOARD
   static uint32_t lastFrame=0;
   const uint32_t now=millis();
   if(faceDisplayReady) {
+    if(saver.current==stach::power::ScreenMode::Dark) {
+      if(!wasScreenDark){stach::display::panel()->fillScreen(0);wasScreenDark=true;}
+    } else {
+    if(wasScreenDark){wasScreenDark=false;drawnScreen=stach::pairing::Screen::Portal;lastFrame=0;}
     if(airMouse.active()) {
       if(!mouseScreenShown || uint32_t(now-lastMouseScreen)>=500) {
         lastMouseScreen=now;
@@ -425,7 +498,7 @@ void loop() {
         if(!stach::pairing::renderCode(contents,pairing.screen)) stach::pairing::renderFailure();
         drawnScreen=pairing.screen;
       }
-    } else if(drawnScreen != stach::pairing::Screen::Face || (uint32_t)(now-lastFrame)>=100) {
+    } else if(drawnScreen != stach::pairing::Screen::Face || (uint32_t)(now-lastFrame)>=stach::power::Saver::framePeriod(saver.current)) {
       lastFrame=now;
       drawnScreen=stach::pairing::Screen::Face;
       AmoledSurface surface;
@@ -435,7 +508,9 @@ void loop() {
       gestureGaze.apply(frame,now,settings.tiltEnabled?tilt:neutralTilt);
       remoteGaze.apply(frame,now);
       stach::face::draw(surface,frame);
+      stach::power_ui::draw(batteryMeter,behavior.chargingKnown,behavior.charging);
       }
+    }
     }
   }
 #endif

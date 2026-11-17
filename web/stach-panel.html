@@ -94,6 +94,20 @@
           <label class="toggle"><span><strong>Горизонтальная ось — гироскоп Y</strong><small>Если движение Z работает неправильно</small></span><span class="switch"><input type="checkbox" id="mouseAxisYX"><span class="track"></span></span></label>
         </div>
       </div>
+      <div class="panel" id="powerPanel"><div class="panel-head"><div><h3>Батарея и энергосбережение</h3><p class="sub">Реальные показания · экономия перерисовки · пробуждение</p></div><span class="tag">POWER</span></div>
+        <div class="info-grid">
+          <div class="info"><span>Заряд аккумулятора</span><strong id="batteryPower">Не определён</strong></div>
+          <div class="info"><span>Режим экрана</span><strong id="screenMode">Активный</strong></div>
+          <div class="info"><span>BAT_ADC</span><strong id="batteryAdcMv">—</strong></div>
+          <div class="info"><span>Напряжение аккумулятора</span><strong id="batteryMv">Нет калибровки</strong></div>
+        </div>
+        <label class="toggle"><span><strong>Экономия энергии</strong><small>Через 45 с снизить FPS, через 5 мин погасить экран. Wi-Fi и Bluetooth продолжают работать.</small></span><span class="switch"><input type="checkbox" id="powerSaver" checked><span class="track"></span></span></label>
+        <div class="buttons"><button class="btn primary" id="wakeScreen">Разбудить экран</button></div>
+        <details style="margin-top:14px;color:var(--muted);font-size:12px"><summary style="cursor:pointer;color:#dae1ed">Калибровка по мультиметру (дополнительно)</summary>
+          <p>Прежде чем вводить число, убедись по схеме и измерениям, что BAT_ADC отслеживает именно аккумулятор, а не напряжение USB. Измерь мультиметром напряжение самой батареи и введи значение в милливольтах. Процент будет приблизительным, а не точным.</p>
+          <div class="buttons" style="align-items:center"><input id="calibrationMv" type="number" min="3200" max="4250" step="1" placeholder="Например, 3900" style="background:#151920;border:1px solid #546075;border-radius:9px;padding:11px;color:white;max-width:168px"><button class="btn" id="calibrateBattery">Сохранить калибровку</button></div>
+        </details>
+      </div>
       <div class="panel"><div class="panel-head"><div><h3>Состояние устройства</h3><p class="sub">Действительные данные, без выдуманного заряда</p></div><span class="tag">LIVE</span></div>
         <div class="info-grid"><div class="info"><span>Wi-Fi</span><strong id="ssid">—</strong></div><div class="info"><span>Адрес</span><strong id="ip">—</strong></div><div class="info"><span>Батарея</span><strong id="battery">Не определена</strong></div><div class="info"><span>Зарядка</span><strong id="charging">Не определена</strong></div><div class="info"><span>Сенсор</span><strong id="touch">—</strong></div><div class="info"><span>Гироскоп</span><strong id="imu">—</strong></div><div class="info"><span>Последний жест</span><strong id="gesture">—</strong></div><div class="info"><span>Сеть / клиенты</span><strong id="clients">—</strong></div></div>
       </div>
@@ -111,7 +125,8 @@
   const names = {neutral:'Обычный',angry:'Злой',sleepy:'Сонный',curious:'Любопытный',happy:'Радостный'};
   const model = {expression:'neutral',pairingScreen:'face',chargingKnown:false,charging:false,batteryKnown:false,batteryPercent:null,
     touchReady:false,imuReady:false,ssid:demo?'Stach-DEMO':'—',ip:demo?'192.168.4.1':'—',lastGesture:'none',clients:0,
-    idleMotion:true,tiltEnabled:true,manualRemainingMs:0,mouseMode:false,mouseBleStarted:false,mouseConnected:false,
+    idleMotion:true,tiltEnabled:true,powerSaver:true,screenMode:'normal',batteryAdcMv:null,batteryMv:null,batteryCalibrated:false,
+    manualRemainingMs:0,mouseMode:false,mouseBleStarted:false,mouseConnected:false,
     mouseCalibrated:false,mouseCalibratingSamples:0,mouseSensitivity:1.25,mouseInvertX:false,mouseInvertY:false,mouseAxisYX:false};
   let online = false, localX = 0, localY = 0, controller = null, lastSend = 0, toastTimer = 0;
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
@@ -133,6 +148,11 @@
     for(const key of Object.keys(model)) if(Object.prototype.hasOwnProperty.call(s,key) && s[key]!==undefined) model[key]=s[key];
     $('ssid').textContent=model.ssid||'—';$('ip').textContent=model.ip||'—';
     $('battery').textContent=model.batteryKnown&&Number.isFinite(Number(model.batteryPercent)) ? String(model.batteryPercent)+'%' : 'Не определена';
+    $('batteryPower').textContent=$('battery').textContent;
+    $('batteryAdcMv').textContent=Number.isFinite(model.batteryAdcMv)?(model.batteryAdcMv+' мВ (АЦП)'):'—';
+    $('batteryMv').textContent=Number.isFinite(model.batteryMv)?(model.batteryMv+' мВ ≈'):'Нет калибровки';
+    $('screenMode').textContent=({normal:'Активный',eco:'Экономный',dark:'Экран погашен'}[model.screenMode]||'—');
+    $('powerSaver').checked=!!model.powerSaver;
     $('charging').textContent=model.chargingKnown?(model.charging?'Заряжается':'Не заряжается'):'Не определена';
     $('touch').textContent=model.touchReady?'Подключён':'Недоступен';$('imu').textContent=model.imuReady?'Подключён':'Недоступен';
     $('gesture').textContent=model.lastGesture||'—';$('clients').textContent=String(model.clients??'—')+' клиентов';
@@ -158,6 +178,26 @@
   for(const id of ['idleMotion','tiltEnabled']) $(id).addEventListener('change',async e=>{
     const value=e.target.checked;const res=await request('/api/settings',{key:id,value:value?'1':'0'});
     if(res.ok){model[id]=value;notify('Настройка сохранена');}else{e.target.checked=!value;notify(res.body.message||'Не удалось сохранить настройку');}
+  });
+  $('powerSaver').addEventListener('change',async e=>{
+    const next=e.target.checked;
+    const res=await request('/api/power/saver',{enabled:next?'1':'0'});
+    if(res.ok){model.powerSaver=next;model.screenMode='normal';applyStatus(model);notify('Энергосбережение '+(next?'включено':'выключено'));}
+    else{e.target.checked=!next;notify(res.body.error||'Не удалось сохранить настройку');}
+  });
+  $('wakeScreen').addEventListener('click',async()=>{
+    const res=await request('/api/power/wake',{});
+    if(res.ok){model.screenMode='normal';applyStatus(model);notify('Экран Stach активирован');}
+    else notify(res.body.error||'Не удалось разбудить экран');
+  });
+  $('calibrateBattery').addEventListener('click',async()=>{
+    const entered=String($('calibrationMv').value);
+    if(!/^\d{4}$/.test(entered)||Number(entered)<3200||Number(entered)>4250){notify('Нужно измерение аккумулятора: 3200–4250 мВ');return;}
+    if(demo){model.batteryCalibrated=true;model.batteryKnown=true;model.batteryPercent=63;
+      model.batteryMv=Number(entered);model.batteryAdcMv=Math.round(Number(entered)/2);applyStatus(model);
+      notify('Демо: показана приблизительная оценка');return;}
+    const res=await request('/api/power/calibrate',{cellMv:entered});
+    notify(res.ok?'Калибровка сохранена. Показания станут доступны после нескольких измерений.':(res.body.error||'Калибровка отклонена'));
   });
   function applyMouseStatus() {
     const active=!!model.mouseMode,ready=active&&!!model.mouseConnected;
@@ -251,6 +291,7 @@
     if(!demo)return;const v=b.dataset.demo;
     model.expression=v==='fall'?'angry':v==='sleepy'?'sleepy':v==='charging'?'happy':'neutral';
     model.chargingKnown=v==='charging';model.charging=v==='charging';model.batteryKnown=v==='sleepy';model.batteryPercent=v==='sleepy'?8:null;
+    model.batteryMv=v==='sleepy'?3500:null;model.batteryAdcMv=v==='sleepy'?1750:null;model.screenMode='normal';
     applyStatus(model);
   }));
   let start=performance.now();
