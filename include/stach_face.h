@@ -8,6 +8,10 @@
 // White eyes; black pupils. Grey shades appear on SHAPE EDGES only for AA.
 namespace stach { namespace face {
 constexpr int WIDTH = 466, HEIGHT = 466;
+// Eye PAIR never leaves the central visual area of the circular 466px display.
+// Individual pupils still shift and the eyes change relative size for perspective.
+constexpr float MAX_EYE_SHIFT_X = 20.f;
+constexpr float MAX_EYE_SHIFT_Y = 12.f;
 
 struct State {
   float gazeX=0, gazeY=0, openness=1;
@@ -39,7 +43,7 @@ inline State evaluate(uint32_t ms, Emotion emotion){
   else if(t>=6.20f && t<6.70f) {direction=1;position=interpolate(t,6.20f,6.70f,1,0);}
 
   s.gazeX=direction*position*.88f;
-  s.offsetX=direction*position*47.0f + anticipation*4.0f;
+  s.offsetX=direction*position*18.0f + anticipation*2.0f;
   s.offsetY=position*3.0f;
   s.scale=1-0.04f*fabsf(anticipation);
 
@@ -126,7 +130,9 @@ template<class Surface> void stroke(Surface& surface,int x1,int y1,int x2,int y2
 template<class Surface> void draw(Surface& surface,const State& st){
   surface.clear(0);
   const float sc=clamp(st.scale,.83f,1.08f);
-  const float eyeOffsetX=clamp(st.offsetX,-55,55),eyeOffsetY=clamp(st.offsetY,-38,38);
+  // Final safety clamp: applies even to malformed sensor values / future modules.
+  const float eyeOffsetX=clamp(st.offsetX,-MAX_EYE_SHIFT_X,MAX_EYE_SHIFT_X);
+  const float eyeOffsetY=clamp(st.offsetY,-MAX_EYE_SHIFT_Y,MAX_EYE_SHIFT_Y);
   const float gaze=clamp(st.gazeX,-1,1);
   for(int i=0;i<2;++i){
     // Perspective: frontal eyes have the SAME proportions.

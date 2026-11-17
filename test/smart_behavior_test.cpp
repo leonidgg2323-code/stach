@@ -38,7 +38,7 @@ int main(){
  ck(face::evaluate(5500,Emotion::Neutral).browStrength==0);
  // Vertical eye extent: closer right eye bigger looking left, vice versa right.
  Buffer l;face::draw(l,left);
- ck(l.pixels[156*466+116]!=0xffff && l.pixels[156*466+256]!=0); // nonessential exact edge? evaluated below too
+ ck(l.pixels[232*466+90]==0 && l.pixels[232*466+225]==0xffff); // updated central glance geometry
  // Event reason engine, no random emotional swaps.
  behavior::Engine e;e.begin(0);
  ck(e.choose(100)==Emotion::Neutral);

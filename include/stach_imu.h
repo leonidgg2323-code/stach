@@ -4,8 +4,9 @@
 #include <Wire.h>
 #include <math.h>
 #include "stach_board.h"
-// Minimal QMI8658 accelerometer-only driver for fall event classification.
-// Register reference: QMI8658 CTRL2=0x03 CTRL7=0x08 AX_L=0x35.
+#include "stach_motion.h"
+// QMI8658: ACC_X_L=0x35, GYR_X_L=0x3B, WHO_AM_I=0x00 (0x05).
+// ACC +/-8g (4096 LSB/g), GYR +/-512deg/s (64 LSB/dps).
 namespace stach { namespace imu {
 struct Driver {
   uint8_t address=0;
@@ -22,22 +23,29 @@ struct Driver {
       if(Wire.read()==5){address=addr;break;}
     }
     if(!address)return false;
-    // Accel +/-8g, 125 Hz ODR (CTRL2 aFS=2, aODR=3); accel only.
-    return write(0x08,0x00)&&write(0x03,0x23)&&write(0x08,0x01);
+    // CTRL1=0x40: enable auto-increment, little endian, preserve I2C mode.
+    // CTRL2=0x26: accel +/-8g, 125 Hz (accel-only); CTRL3=0x56:
+    // gyro +/-512 dps, approximately 112-125 Hz depending on chip revision.
+    // CTRL7=0x03: enable accel+gyro. Never re-init Wire here.
+    return write(0x08,0x00) && write(0x02,0x40) &&
+           write(0x03,0x26) && write(0x04,0x56) && write(0x08,0x03);
   }
-  bool accelerationG(float& magnitude){
+  static int16_t i16(const uint8_t* p){return int16_t((uint16_t(p[1])<<8)|p[0]);}
+  bool read(stach::motion::Sample& result){
     if(!address)return false;
     Wire.beginTransmission(address);Wire.write(uint8_t(0x35));
     if(Wire.endTransmission(false)!=0)return false;
-    if(Wire.requestFrom(int(address),6)!=6)return false;
-    uint8_t bytes[6];for(int i=0;i<6;++i)bytes[i]=uint8_t(Wire.read());
-    int16_t x=int16_t((uint16_t(bytes[1])<<8)|bytes[0]);
-    int16_t y=int16_t((uint16_t(bytes[3])<<8)|bytes[2]);
-    int16_t z=int16_t((uint16_t(bytes[5])<<8)|bytes[4]);
-    float gx=float(x)/4096.f,gy=float(y)/4096.f,gz=float(z)/4096.f;
-    magnitude=sqrtf(gx*gx+gy*gy+gz*gz);
-    return isfinite(magnitude);
+    if(Wire.requestFrom(int(address),12)!=12)return false;
+    uint8_t d[12];for(int i=0;i<12;++i)d[i]=uint8_t(Wire.read());
+    result.ax=float(i16(d+0))/4096.f;
+    result.ay=float(i16(d+2))/4096.f;
+    result.az=float(i16(d+4))/4096.f;
+    result.gx=float(i16(d+6))/64.f;
+    result.gy=float(i16(d+8))/64.f;
+    result.gz=float(i16(d+10))/64.f;
+    return isfinite(result.ax)&&isfinite(result.ay)&&isfinite(result.az)&&
+           isfinite(result.gx)&&isfinite(result.gy)&&isfinite(result.gz);
   }
 };
-}} // namespace stach::imu
+}}
 #endif

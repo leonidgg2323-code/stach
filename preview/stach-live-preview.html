@@ -35,7 +35,7 @@ ctx.setTransform(canvas.width/466,0,0,canvas.height/466,0,0);ctx.clearRect(0,0,4
 const sec=(now-start)/1000,{look,prep}=motion(sec),open=mode==='sleepy'?.43:mode==='angry'?.75:mode==='happy'?.72:1;
 const blinkPhase=Math.abs(sec%8-6.92),blink=blinkPhase<.095?Math.max(.12,blinkPhase/.095):1;
 for(let i=0;i<2;i++){
-const factor=(i===0?1+.17*look:1-.17*look),cx=(i===0?163:303)+47*look+4*prep,cy=229+3*Math.abs(look),rx=55*factor,ry=73*factor*open*blink;
+const factor=(i===0?1+.17*look:1-.17*look),cx=(i===0?163:303)+18*look+2*prep,cy=229+3*Math.abs(look),rx=55*factor,ry=73*factor*open*blink;
 oval(cx,cy,rx,ry,'#fff');if(ry>10)oval(cx+look*15,cy,23*factor,Math.min(ry*.72,39*factor),'#000');
 if(mode!=='neutral'){
  let lift=mode==='angry'?-9:mode==='sleepy'?-5:mode==='happy'?10:8;

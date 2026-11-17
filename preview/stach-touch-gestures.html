@@ -1,0 +1,49 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stach — Touch & Gestures</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#0b0d11;color:#eee;font-family:system-ui,Segoe UI,Arial,sans-serif;padding:24px;text-align:center}
+h1{margin:0 0 5px;font-size:28px}p{color:#acb2c2;line-height:1.5}.device{width:min(80vw,420px);aspect-ratio:1;background:black;border:10px solid #525965;box-shadow:inset 0 0 0 3px #aaa,0 25px 50px #0009;border-radius:50%;overflow:hidden;margin:24px auto 15px;touch-action:none;user-select:none;cursor:grab}
+.device:active{cursor:grabbing}.device svg{display:block;width:100%;height:100%}.controls{max-width:510px;margin:auto;display:grid;gap:10px}.status{background:#1a1d26;border-radius:12px;padding:14px;font-size:15px}.slider{display:flex;justify-content:center;align-items:center;gap:12px;flex-wrap:wrap;color:#bfc4d2}input{width:190px;accent-color:#c9cbd6}code{color:#fff}.hint{font-size:13px;max-width:490px;margin:16px auto}
+</style>
+<h1>STACH · Touch Engine</h1><p>Проведи пальцем по экрану · нажми · удерживай · дважды нажми</p>
+<div class="device" id="device"><svg viewBox="0 0 466 466" aria-label="Stach — два матовых белых глаза"><rect width="466" height="466" fill="#000"/>
+<g id="eyes" transform="translate(0 0)">
+  <g id="eyeL"><ellipse cx="163" cy="229" rx="55" ry="73" fill="#fff"/><ellipse id="pupilL" cx="163" cy="229" rx="23" ry="39" fill="#000"/></g>
+  <g id="eyeR"><ellipse cx="303" cy="229" rx="55" ry="73" fill="#fff"/><ellipse id="pupilR" cx="303" cy="229" rx="23" ry="39" fill="#000"/></g>
+  <g id="brows" opacity="0" stroke="#fff" stroke-width="7" stroke-linecap="round" fill="none"><path d="M128 125 Q163 109 196 126"/><path d="M272 126 Q303 108 337 125"/></g>
+</g></svg></div>
+<div class="controls"><div class="status" id="result">Жест: ожидание</div>
+<div class="slider"><label for="tilt">Наклон вправо/влево</label><input type="range" min="-100" max="100" value="0" id="tilt"><code id="tVal">0.00</code></div>
+</div><p class="hint">Демонстрация в браузере: жесты здесь распознаёт JavaScript. На устройстве используется C++-модуль и FT3168/FT6146. Это не запись с платы. Брови появляются только при эмоции.</p>
+<script>
+const area=document.getElementById('device'),result=document.getElementById('result');
+const group=document.getElementById('eyes'),left=document.getElementById('eyeL'),right=document.getElementById('eyeR'),brows=document.getElementById('brows');
+let start=null,lastTap=0,longTimer=0,longSent=false,dirX=0,dirY=0,curiousUntil=0,directionAt=0;
+let tx=0,ty=0,gx=0,gy=0,b=0,tilt=0;
+const clamp=(x,a,z)=>Math.max(a,Math.min(z,x));
+function react(name,dx=0,dy=0){result.textContent='Жест: '+name;dirX=dx;dirY=dy;directionAt=performance.now();
+ if(name==='Касание'||name==='Удержание'||name==='Двойное касание'||name.includes('Свайп'))curiousUntil=performance.now()+2300;
+}
+function pos(e){let r=area.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*466,y:(e.clientY-r.top)/r.height*466};}
+area.addEventListener('pointerdown',e=>{area.setPointerCapture(e.pointerId);let v=pos(e);start={...v,t:performance.now()};longSent=false;
+clearTimeout(longTimer);longTimer=setTimeout(()=>{if(start){longSent=true;react('Удержание');}},650);});
+area.addEventListener('pointermove',e=>{if(!start)return;let v=pos(e);if(Math.hypot(v.x-start.x,v.y-start.y)>22)clearTimeout(longTimer);});
+area.addEventListener('pointerup',e=>{clearTimeout(longTimer);if(!start)return;const v=pos(e),d=performance.now()-start.t,dx=v.x-start.x,dy=v.y-start.y;start=null;
+if(longSent)return;if(d<1000&&Math.max(Math.abs(dx),Math.abs(dy))>=54){if(Math.abs(dx)>=Math.abs(dy)){react(dx<0?'Свайп влево':'Свайп вправо',Math.sign(dx),0)}else{react(dy<0?'Свайп вверх':'Свайп вниз',0,Math.sign(dy))}return;}
+if(d<=350&&Math.hypot(dx,dy)<=22){if(performance.now()-lastTap<350){lastTap=0;react('Двойное касание',0,0)}else{lastTap=performance.now();setTimeout(()=>{if(lastTap&&performance.now()-lastTap>=350){lastTap=0;react('Касание')}},355)}}});
+area.addEventListener('pointercancel',()=>{clearTimeout(longTimer);start=null;});
+const slider=document.getElementById('tilt');slider.oninput=()=>{tilt=Number(slider.value)/100;document.getElementById('tVal').textContent=tilt.toFixed(2)};
+function frame(t){
+ const active=t<curiousUntil, age=t-directionAt;
+ // Swipe reaction lasts 1.6s and always returns to center.
+ const ease=v=>{v=clamp(v,0,1);return v*v*(3-2*v)};
+ const weight=age<150?ease(age/150):age<1050?1:age<1600?1-ease((age-1050)/550):0;
+ const toX=clamp(dirX*18*weight+tilt*4,-20,20),toY=clamp(dirY*10*weight,-12,12);
+ tx+=(toX-tx)*.11;ty+=(toY-ty)*.11;
+ gx+=(dirX*.9*weight+tilt*.2-gx)*.11;gy+=(dirY*.9*weight-gy)*.11;
+ b+=((active?1:0)-b)*.09;group.setAttribute('transform',`translate(${tx.toFixed(2)} ${ty.toFixed(2)})`);
+ let sl=1+gx*.17,sr=1-gx*.17;left.setAttribute('transform',`translate(163 229) scale(${sl.toFixed(3)}) translate(-163 -229)`);right.setAttribute('transform',`translate(303 229) scale(${sr.toFixed(3)}) translate(-303 -229)`);
+ document.getElementById('pupilL').setAttribute('cx',String(163+gx*15));document.getElementById('pupilL').setAttribute('cy',String(229+gy*11));
+ document.getElementById('pupilR').setAttribute('cx',String(303+gx*15));document.getElementById('pupilR').setAttribute('cy',String(229+gy*11));
+ brows.setAttribute('opacity',b.toFixed(3));requestAnimationFrame(frame)}requestAnimationFrame(frame);
+</script></html>

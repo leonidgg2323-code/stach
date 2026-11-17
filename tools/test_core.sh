@@ -21,3 +21,6 @@ c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/reference_style_test.cpp -o 
 
 c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/smart_behavior_test.cpp -o .build/smart_behavior_test
 .build/smart_behavior_test
+
+c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/touch_gestures_test.cpp -o .build/touch_gestures_test
+.build/touch_gestures_test

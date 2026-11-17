@@ -7,11 +7,14 @@
 #include "stach_face.h"
 #include "stach_character.h"
 #include "stach_behavior.h"
+#include "stach_touch.h"
+#include "stach_motion.h"
 #include <esp_timer.h>
 #ifdef STACH_WAVESHARE_BOARD
 #include "stach_hardware.h"
 #include "stach_display.h"
 #include "stach_imu.h"
+#include "stach_touch_hal.h"
 #endif
 
 static WebServer server(80);
@@ -23,10 +26,19 @@ static stach::behavior::Engine behavior;
 static uint64_t manualUntil=0;
 static char qrPayload[128] = {};
 static bool initialized = false;
+static stach::motion::Tilt tilt;
+static stach::motion::Gaze gestureGaze;
+static stach::motion::Sample lastMotion;
+static stach::touch::Gesture lastGesture=stach::touch::Gesture::None;
+static uint32_t lastGestureAt=0;
 #ifdef STACH_WAVESHARE_BOARD
 static bool faceDisplayReady = false;
 static stach::imu::Driver imu;
 static bool imuReady=false;
+static stach::touch::Driver touchDriver;
+static stach::touch::Recognizer touchRecognizer;
+static bool touchReady=false;
+static uint32_t lastTouchValidAt=0;
 struct AmoledSurface {
   void clear(uint16_t color) { stach::display::panel()->fillScreen(color); }
   void hline(int x,int y,int w,uint16_t color) {
@@ -69,7 +81,7 @@ button.active{border-color:#fff;background:#444}p{color:#bbb}
 <div class="preview" aria-label="Матовые белые глаза на чёрном фоне">
 <div class="face neutral" id="face"><div class="brow left"></div><div class="brow right"></div>
 <div class="eye left"><div class="pupil"></div></div><div class="eye right"><div class="pupil"></div></div>
-</div></div><div id="buttons"></div><p id="status" role="status"></p>
+</div></div><div id="buttons"></div><p id="status" role="status"></p><p id="sensorStatus" aria-live="polite">Сенсор: ожидание данных</p>
 <script>
 const names=['neutral','angry','sleepy','curious','happy'];
 const face=document.getElementById('face'),status=document.getElementById('status');
@@ -93,7 +105,7 @@ function motion(t){
  else if(t>=5.2&&t<6.2)look=1;
  else if(t>=6.2&&t<6.7)look=1-ease((t-6.2)/.5);
  const w=face.parentElement.clientWidth/466;
- face.style.setProperty('--x',(47*look+4*prep)*w+'px');
+ face.style.setProperty('--x',(18*look+2*prep)*w+'px');
  face.style.setProperty('--y',3*Math.abs(look)*w+'px');
  face.style.setProperty('--gx',(15*look)*w+'px');
  face.style.setProperty('--gy','0px');
@@ -101,7 +113,15 @@ function motion(t){
  rightEye.style.setProperty('--perspective',1-.17*look);
 }
 let started=performance.now();setInterval(()=>motion((performance.now()-started)/1000),32);
-fetch('/api/status').then(r=>r.json()).then(s=>{if(names.includes(s.expression))update(s.expression)}).catch(()=>{});
+async function refreshStatus(){try{
+ const r=await fetch('/api/status');if(!r.ok)return;
+ const s=await r.json();if(names.includes(s.expression))update(s.expression);
+ document.getElementById('sensorStatus').textContent=
+ 'Касание: '+(s.touchReady?'подключено':'недоступно')+
+ ' · Жест: '+s.lastGesture+
+ ' · Наклон: '+(s.imuReady?(Number(s.tiltX).toFixed(2)+', '+Number(s.tiltY).toFixed(2)):'недоступен');
+ }catch(e){document.getElementById('sensorStatus').textContent='Нет связи с устройством';}}
+refreshStatus();setInterval(refreshStatus,1500);
 </script></html>)HTML";
 
 static String newPassword() {
@@ -124,7 +144,9 @@ void setup() {
   Serial.printf("[HW] AMOLED init: %s\n", displayReady ? "OK" : "FAILED");
   faceDisplayReady = displayReady;
   imuReady=imu.begin();
-  Serial.printf("[IMU] Accelerometer: %s\n",imuReady?"OK":"not available");
+  Serial.printf("[IMU] Accelerometer+gyro: %s\n",imuReady?"OK":"not available");
+  touchReady=touchDriver.begin();
+  Serial.printf("[TOUCH] FT3168/FT6146 0x38: %s\n",touchReady?"OK":"not available");
 #endif
   if (!preferences.begin("stach", false)) {Serial.println("NVS unavailable"); return;}
   password = preferences.getString("ap_pass", "");
@@ -147,7 +169,26 @@ void setup() {
   server.on("/api/status", HTTP_GET, [](){
     String body = String("{\"name\":\"Stach\",\"expression\":\"") + stach::emotionName(character.current) +
       "\",\"ip\":\"" + WiFi.softAPIP().toString() + "\",\"chargingKnown\":" +
-      (behavior.chargingKnown?"true":"false") + "}";
+      (behavior.chargingKnown?"true":"false") +
+      ",\"touchReady\":" +
+#ifdef STACH_WAVESHARE_BOARD
+      (touchReady?"true":"false") +
+#else
+      String("false") +
+#endif
+      ",\"imuReady\":" +
+#ifdef STACH_WAVESHARE_BOARD
+      (imuReady?"true":"false") +
+#else
+      String("false") +
+#endif
+      ",\"lastGesture\":\"" + stach::touch::name(lastGesture) +
+      "\",\"lastGestureMs\":" + String(lastGestureAt) +
+      ",\"tiltX\":" + String(tilt.x,3) +
+      ",\"tiltY\":" + String(tilt.y,3) +
+      ",\"gyroX\":" + String(lastMotion.gx,2) +
+      ",\"gyroY\":" + String(lastMotion.gy,2) +
+      ",\"gyroZ\":" + String(lastMotion.gz,2) + "}";
     server.send(200,"application/json",body);
   });
   server.on("/api/expression", HTTP_POST, [](){
@@ -173,8 +214,30 @@ void loop() {
   static uint64_t lastImuMs=0;
   if(imuReady && uptimeMs-lastImuMs>=20){
     lastImuMs=uptimeMs;
-    float g=0;
-    if(imu.accelerationG(g))behavior.acceleration(g,uptimeMs);
+    stach::motion::Sample current;
+    if(imu.read(current)){
+      lastMotion=current;
+      const float g=sqrtf(current.ax*current.ax+current.ay*current.ay+current.az*current.az);
+      behavior.acceleration(g,uptimeMs);
+      tilt.update(current);
+    }
+  }
+  static uint32_t lastTouchPoll=0;
+  if(touchReady && uint32_t(tickMs-lastTouchPoll)>=20){
+    lastTouchPoll=tickMs;
+    stach::touch::Point point;
+    if(touchDriver.read(point)){
+      lastTouchValidAt=tickMs;
+      const stach::touch::Event event=touchRecognizer.feed(point,tickMs);
+      if(event.kind!=stach::touch::Gesture::None){
+        lastGesture=event.kind;lastGestureAt=tickMs;
+        gestureGaze.event(event.kind,tickMs);
+        behavior.touch(uptimeMs); // touch-triggered curiosity, not random emotion
+        Serial.printf("[TOUCH] %s (%d,%d)\n",stach::touch::name(event.kind),event.x,event.y);
+      }
+    }else if(uint32_t(tickMs-lastTouchValidAt)>250){
+      touchRecognizer.cancel(); // Do not synthesize fake taps on I2C failures.
+    }
   }
 #endif
   if(uptimeMs>=manualUntil){
@@ -187,7 +250,9 @@ void loop() {
   if(faceDisplayReady && (uint32_t)(now-lastFrame)>=100) {
     lastFrame=now;
     AmoledSurface surface;
-    stach::face::draw(surface,character.sample(now));
+    stach::face::State frame=character.sample(now);
+    gestureGaze.apply(frame,now,tilt);
+    stach::face::draw(surface,frame);
   }
 #endif
   delay(2);
