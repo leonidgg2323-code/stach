@@ -11,6 +11,7 @@
 #include "stach_motion.h"
 #include "stach_pairing.h"
 #include "stach_control.h"
+#include "stach_mouse.h"
 #include "stach_web.h"
 #include <esp_timer.h>
 #ifdef STACH_WAVESHARE_BOARD
@@ -19,6 +20,8 @@
 #include "stach_imu.h"
 #include "stach_touch_hal.h"
 #include "stach_qr_display.h"
+#include "stach_ble_mouse.h"
+#include "stach_mouse_ui.h"
 #endif
 
 static WebServer server(80);
@@ -32,6 +35,7 @@ static char qrPayload[128] = {};
 static char portalUrl[64] = {};
 static stach::pairing::Controller pairing;
 static stach::control::Settings settings;
+static stach::mouse::Engine airMouse;
 static stach::control::RemoteGaze remoteGaze;
 static bool initialized = false;
 static stach::motion::Tilt tilt;
@@ -41,6 +45,9 @@ static stach::touch::Gesture lastGesture=stach::touch::Gesture::None;
 static uint32_t lastGestureAt=0;
 #ifdef STACH_WAVESHARE_BOARD
 static bool faceDisplayReady = false;
+static stach::ble::Adapter hidMouse;
+static bool mouseScreenShown=false;
+static uint32_t lastMouseScreen=0;
 static stach::pairing::Screen drawnScreen = stach::pairing::Screen::Portal;
 static stach::imu::Driver imu;
 static bool imuReady=false;
@@ -57,6 +64,38 @@ struct AmoledSurface {
     if(w>0)stach::display::panel()->drawFastHLine(x,y,w,color);
   }
 };
+#endif
+
+// Mouse mode is opt-in and never survives reboot. No HID reports are sent
+// outside this mode, even if BLE remains bonded/connected after exiting.
+static bool setMouseMode(bool on, uint32_t now) {
+#ifdef STACH_WAVESHARE_BOARD
+  if(on) {
+    pairing.show(stach::pairing::Screen::Face,now);
+    hidMouse.beginOnce(); // start BLE advertising only after explicit activation
+  }
+  airMouse.enable(on,now);
+  return true;
+#else
+  (void)on; (void)now;
+  return false; // network prototype has no BLE transport
+#endif
+}
+
+#ifdef STACH_WAVESHARE_BOARD
+static void mouseGesture(stach::touch::Gesture gesture,uint32_t now) {
+  using stach::mouse::Action;
+  switch(stach::mouse::gestureAction(gesture)) {
+    case Action::Exit: setMouseMode(false,now); break;
+    case Action::LeftClick: hidMouse.click(airMouse,stach::mouse::Button::Left);break;
+    case Action::RightClick: hidMouse.click(airMouse,stach::mouse::Button::Right);break;
+    case Action::ScrollUp: hidMouse.scroll(airMouse,3,0);break;
+    case Action::ScrollDown: hidMouse.scroll(airMouse,-3,0);break;
+    case Action::ScrollLeft: hidMouse.scroll(airMouse,0,-3);break;
+    case Action::ScrollRight: hidMouse.scroll(airMouse,0,3);break;
+    default:break;
+  }
+}
 #endif
 
 // The mobile-first page is embedded from web/stach-panel.html (stach_web.h).
@@ -88,6 +127,13 @@ void setup() {
   if (!preferences.begin("stach", false)) {Serial.println("NVS unavailable"); return;}
   settings.idleMotion = preferences.getBool("idle", true);
   settings.tiltEnabled = preferences.getBool("tilt", true);
+  stach::mouse::Config mouseConf;
+  mouseConf.sensitivity=preferences.getFloat("msens",1.25f);
+  if(!stach::mouse::validSensitivity(mouseConf.sensitivity)) mouseConf.sensitivity=1.25f;
+  mouseConf.invertX=preferences.getBool("minvx",false);
+  mouseConf.invertY=preferences.getBool("minvy",false);
+  mouseConf.axisYX=preferences.getBool("maxis",false);
+  airMouse.configure(mouseConf,millis());
   password = preferences.getString("ap_pass", "");
   if (!stach::validPassword(password.c_str())) {
     password = newPassword();
@@ -146,6 +192,25 @@ void setup() {
       ",\"tiltEnabled\":" + (settings.tiltEnabled?"true":"false") +
       ",\"manualRemainingMs\":" + String(remain) +
       ",\"gazeActive\":" + (remoteGaze.active(now)?"true":"false") +
+      ",\"mouseMode\":" + (airMouse.active()?"true":"false") +
+      ",\"mouseBleStarted\":" +
+#ifdef STACH_WAVESHARE_BOARD
+      (hidMouse.started()?"true":"false") +
+#else
+      String("false") +
+#endif
+      ",\"mouseConnected\":" +
+#ifdef STACH_WAVESHARE_BOARD
+      (hidMouse.connected()?"true":"false") +
+#else
+      String("false") +
+#endif
+      ",\"mouseCalibrated\":" + (airMouse.calibrated()?"true":"false") +
+      ",\"mouseCalibratingSamples\":" + String(airMouse.calibrationSamples()) +
+      ",\"mouseSensitivity\":" + String(airMouse.config.sensitivity,2) +
+      ",\"mouseInvertX\":" + (airMouse.config.invertX?"true":"false") +
+      ",\"mouseInvertY\":" + (airMouse.config.invertY?"true":"false") +
+      ",\"mouseAxisYX\":" + (airMouse.config.axisYX?"true":"false") +
       ",\"clients\":" + String(WiFi.softAPgetStationNum()) +
       ",\"uptimeMs\":" + String(now) + "}";
     server.sendHeader("Cache-Control", "no-store");
@@ -165,6 +230,7 @@ void setup() {
     if(!stach::pairing::parseScreen(server.arg("mode").c_str(),next)){
       server.send(400,"text/plain","Invalid pairing screen");return;
     }
+    if(airMouse.active())setMouseMode(false,millis());
     pairing.show(next,millis());
     server.send(200,"text/plain",String("Stach screen: ")+stach::pairing::name(pairing.screen));
   });
@@ -201,6 +267,87 @@ void setup() {
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json","{\"ok\":true}");
   });
+  // BLE control commands are only accepted from local Wi-Fi AP clients.
+  // No automatic HID action on boot; no HID action without mouse mode+BLE link.
+  server.on("/api/mouse/mode", HTTP_POST, [](){
+    bool next=false;
+    if(!stach::control::parseSwitch(server.arg("enabled").c_str(),next)) {
+      server.send(400,"application/json","{\"error\":\"Invalid mode\"}");return;
+    }
+    if(!setMouseMode(next,millis())) {
+      server.send(503,"application/json","{\"error\":\"Hardware BLE unavailable\"}");return;
+    }
+    server.send(200,"application/json","{\"ok\":true}");
+  });
+  server.on("/api/mouse/calibrate", HTTP_POST, [](){
+    if(!airMouse.active()) {server.send(409,"application/json","{\"error\":\"Enable Mouse Mode first\"}");return;}
+    airMouse.recalibrate(millis());
+    server.send(200,"application/json","{\"ok\":true}");
+  });
+  server.on("/api/mouse/config", HTTP_POST, [](){
+    const String key=server.arg("key");const String value=server.arg("value");
+    stach::mouse::Config next=airMouse.config;
+    if(key=="sensitivity"){
+      float n=0;
+      if(!stach::mouse::parseSensitivity(value.c_str(),n)){
+        server.send(400,"application/json","{\"error\":\"Sensitivity out of range\"}");return;}
+      next.sensitivity=n;
+      if(preferences.putFloat("msens",n)!=sizeof(float)){
+        server.send(500,"application/json","{\"error\":\"Save failed\"}");return;}
+    }else{
+      bool b=false;
+      if(!stach::control::parseSwitch(value.c_str(),b)){
+        server.send(400,"application/json","{\"error\":\"Invalid option\"}");return;}
+      const char* store=nullptr;
+      if(key=="invertX"){next.invertX=b;store="minvx";}
+      else if(key=="invertY"){next.invertY=b;store="minvy";}
+      else if(key=="axisYX"){next.axisYX=b;store="maxis";}
+      else {server.send(400,"application/json","{\"error\":\"Unknown option\"}");return;}
+      if(preferences.putBool(store,b)!=1){
+        server.send(500,"application/json","{\"error\":\"Save failed\"}");return;}
+    }
+    airMouse.configure(next,millis());
+    server.send(200,"application/json","{\"ok\":true}");
+  });
+  server.on("/api/mouse/click", HTTP_POST, [](){
+#ifdef STACH_WAVESHARE_BOARD
+    const String b=server.arg("button");
+    stach::mouse::Button button=stach::mouse::Button::None;
+    if(b=="left")button=stach::mouse::Button::Left;
+    else if(b=="right")button=stach::mouse::Button::Right;
+    else if(b=="middle")button=stach::mouse::Button::Middle;
+    if(button==stach::mouse::Button::None){server.send(400,"application/json","{\"error\":\"Unknown mouse button\"}");return;}
+    if(!hidMouse.click(airMouse,button)) {server.send(409,"application/json","{\"error\":\"Mouse inactive or BLE disconnected\"}");return;}
+    server.send(200,"application/json","{\"ok\":true}");
+#else
+    server.send(503,"application/json","{\"error\":\"BLE unavailable\"}");
+#endif
+  });
+  server.on("/api/mouse/move", HTTP_POST, [](){
+#ifdef STACH_WAVESHARE_BOARD
+    int8_t x=0,y=0;
+    if(!stach::mouse::parseDelta(server.arg("dx").c_str(),x)||
+       !stach::mouse::parseDelta(server.arg("dy").c_str(),y)){
+      server.send(400,"application/json","{\"error\":\"Invalid movement\"}");return;
+    }
+    if(!hidMouse.move(airMouse,x,y)){server.send(409,"application/json","{\"error\":\"BLE not connected\"}");return;}
+    server.send(200,"application/json","{\"ok\":true}");
+#else
+    server.send(503,"application/json","{\"error\":\"BLE unavailable\"}");
+#endif
+  });
+  server.on("/api/mouse/scroll", HTTP_POST, [](){
+#ifdef STACH_WAVESHARE_BOARD
+    const String dir=server.arg("direction");int8_t v=0,h=0;
+    if(dir=="up")v=3;else if(dir=="down")v=-3;
+    else if(dir=="left")h=-3;else if(dir=="right")h=3;
+    else{server.send(400,"application/json","{\"error\":\"Invalid scroll direction\"}");return;}
+    if(!hidMouse.scroll(airMouse,v,h)){server.send(409,"application/json","{\"error\":\"BLE not connected\"}");return;}
+    server.send(200,"application/json","{\"ok\":true}");
+#else
+    server.send(503,"application/json","{\"error\":\"BLE unavailable\"}");
+#endif
+  });
   server.onNotFound([](){server.send(404,"text/plain","Not found");});
   server.begin();
   initialized = true;
@@ -215,6 +362,7 @@ void loop() {
   pairing.tick(tickMs);
   const uint64_t uptimeMs=uint64_t(esp_timer_get_time())/1000ULL;
 #ifdef STACH_WAVESHARE_BOARD
+  airMouse.link(hidMouse.connected(),tickMs);
   static uint64_t lastImuMs=0;
   if(imuReady && uptimeMs-lastImuMs>=20){
     lastImuMs=uptimeMs;
@@ -224,6 +372,7 @@ void loop() {
       const float g=sqrtf(current.ax*current.ax+current.ay*current.ay+current.az*current.az);
       behavior.acceleration(g,uptimeMs);
       tilt.update(current);
+      hidMouse.send(airMouse,airMouse.update(current,tickMs));
     }
   }
   static uint32_t lastTouchPoll=0;
@@ -235,10 +384,17 @@ void loop() {
       const stach::touch::Event event=touchRecognizer.feed(point,tickMs);
       if(event.kind!=stach::touch::Gesture::None){
         lastGesture=event.kind;lastGestureAt=tickMs;
-        const bool changedPairing = pairing.gesture(event.kind,tickMs);
-        if(!changedPairing && pairing.screen==stach::pairing::Screen::Face) {
-          gestureGaze.event(event.kind,tickMs);
-          behavior.touch(uptimeMs); // only on face, not on QR screen
+        if(airMouse.active()) {
+          mouseGesture(event.kind,tickMs);
+        } else if(pairing.screen==stach::pairing::Screen::Face &&
+                  event.kind==stach::touch::Gesture::SwipeUp) {
+          setMouseMode(true,tickMs); // deliberate device gesture to enter Mouse Mode
+        } else {
+          const bool changedPairing = pairing.gesture(event.kind,tickMs);
+          if(!changedPairing && pairing.screen==stach::pairing::Screen::Face) {
+            gestureGaze.event(event.kind,tickMs);
+            behavior.touch(uptimeMs);
+          }
         }
         Serial.printf("[TOUCH] %s (%d,%d)\n",stach::touch::name(event.kind),event.x,event.y);
       }
@@ -255,7 +411,15 @@ void loop() {
   static uint32_t lastFrame=0;
   const uint32_t now=millis();
   if(faceDisplayReady) {
-    if(pairing.screen != stach::pairing::Screen::Face) {
+    if(airMouse.active()) {
+      if(!mouseScreenShown || uint32_t(now-lastMouseScreen)>=500) {
+        lastMouseScreen=now;
+        mouseScreenShown=true;
+        stach::mouse_ui::draw(airMouse,hidMouse.started(),imuReady);
+      }
+    } else {
+      if(mouseScreenShown) { mouseScreenShown=false;drawnScreen=stach::pairing::Screen::Portal; }
+      if(pairing.screen != stach::pairing::Screen::Face) {
       if(pairing.screen != drawnScreen) {
         const char* contents = pairing.screen==stach::pairing::Screen::Wifi ? qrPayload : portalUrl;
         if(!stach::pairing::renderCode(contents,pairing.screen)) stach::pairing::renderFailure();
@@ -271,6 +435,7 @@ void loop() {
       gestureGaze.apply(frame,now,settings.tiltEnabled?tilt:neutralTilt);
       remoteGaze.apply(frame,now);
       stach::face::draw(surface,frame);
+      }
     }
   }
 #endif

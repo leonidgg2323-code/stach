@@ -37,6 +37,19 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
     .knob{width:42px;height:42px;background:#eceffd;border-radius:50%;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none;box-shadow:0 4px 18px #0009}.joy-help{font-size:12px;color:var(--muted);max-width:170px}
     .info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.info{border:1px solid #282e39;background:#1a1f29;border-radius:13px;padding:11px;min-width:0}.info span{display:block;font-size:11px;color:var(--muted)}.info strong{display:block;font-size:13px;overflow-wrap:anywhere;margin-top:3px;font-weight:650}
     .toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid #252b34}.toggle:last-child{border:0;padding-bottom:0}.toggle strong{display:block;font-size:13px}.toggle small{color:var(--muted);font-size:11px;display:block}.switch{position:relative;display:inline-block;width:42px;height:25px;flex-shrink:0}.switch input{position:absolute;opacity:0;inset:0}.switch .track{display:block;width:100%;height:100%;background:#3c4350;border-radius:30px;transition:background .2s}.switch .track::after{content:"";position:absolute;left:3px;top:3px;width:19px;height:19px;border-radius:50%;background:#fff;transition:transform .2s}.switch input:checked+.track{background:#8b9ac6}.switch input:checked+.track::after{transform:translateX(17px)}
+    .mouse-status{display:flex;align-items:center;gap:8px;font-size:12px;color:#d6ddeb;margin:0 0 12px}
+    .mouse-led{width:9px;height:9px;border-radius:50%;background:#aab2c5;flex-shrink:0}
+    .mouse-led.ready{background:#78e1b1}.mouse-led.pair{background:#f2b766}
+    .mouse-pad{margin:12px 0;background:radial-gradient(circle at center,#30394c 0 4px,transparent 5px),
+      linear-gradient(90deg,transparent 49.85%,#343e52 50%,transparent 50.15%),
+      linear-gradient(0deg,transparent 49.85%,#343e52 50%,transparent 50.15%),#1b202a;
+      width:100%;height:130px;border:1px solid #424d61;border-radius:16px;touch-action:none;position:relative;cursor:crosshair;user-select:none}
+    .mouse-pointer{position:absolute;left:50%;top:50%;width:13px;height:13px;border-radius:50%;background:#fff;transform:translate(-50%,-50%);
+      box-shadow:0 0 0 5px #ffffff11;pointer-events:none}
+    .mouse-options{display:grid;gap:12px;margin-top:14px}
+    .mouse-range{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:12px}
+    .mouse-range input{min-width:0;flex:1;accent-color:#d8e1ff}
+    .mouse-help{font-size:11px;color:var(--muted);margin:9px 0}
     .toast{position:fixed;left:50%;bottom:16px;transform:translate(-50%,110px);max-width:min(92vw,480px);padding:12px 18px;border:1px solid #4f5967;background:#27303c;color:#f4f7fa;border-radius:12px;z-index:100;font-size:13px;text-align:center;transition:transform .25s;box-shadow:0 8px 40px #0009}.toast.show{transform:translate(-50%,0)}
     .demo-only{display:none}.demo .demo-only{display:block}.foot{margin:22px auto 4px;color:#7f899b;text-align:center;font-size:11px}
     @media(max-width:800px){.layout{grid-template-columns:1fr}.intro{margin-bottom:18px}.device{width:min(83vw,350px)}.panel{padding:17px}.shell{padding:16px}header{margin-bottom:17px}}
@@ -72,12 +85,24 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
         <label class="toggle"><span><strong>Живой взгляд</strong><small>Самостоятельные мягкие движения глаз</small></span><span class="switch"><input type="checkbox" id="idleMotion" checked><span class="track"></span></span></label>
         <label class="toggle"><span><strong>Реакция на наклон</strong><small>Небольшой сдвиг глаз от акселерометра</small></span><span class="switch"><input type="checkbox" id="tiltEnabled" checked><span class="track"></span></span></label>
       </div>
+      <div class="panel" id="mousePanel"><div class="panel-head"><div><h3>Bluetooth-мышь</h3><p class="sub">Управление компьютером без кабеля</p></div><span class="tag">BLE HID</span></div>
+        <div class="mouse-status"><span class="mouse-led" id="mouseLed"></span><strong id="mouseStatus">Выключена</strong></div>
+        <div class="buttons"><button class="btn primary" id="mouseModeBtn">Включить мышь</button><button class="btn" id="mouseCalibrateBtn">Калибровка</button></div>
+        <p class="mouse-help">После включения открой Bluetooth в Windows и найди <strong>Stach Mouse</strong>. Держи Stach неподвижно во время калибровки. Двигай корпусом как воздушной мышью. На дисплее: тап — левый клик, двойной — правый, свайп — прокрутка, удержание — выход.</p>
+        <div class="mouse-pad" id="mousePad" role="application" aria-label="Тачпад для управления курсором компьютера через Stach"><div class="mouse-pointer" id="mousePointer"></div></div>
+        <div class="buttons"><button class="btn" id="mouseLeftBtn">Левый клик</button><button class="btn" id="mouseRightBtn">Правый клик</button><button class="btn" id="mouseScrollUp">Прокрутка ↑</button><button class="btn" id="mouseScrollDown">Прокрутка ↓</button></div>
+        <div class="mouse-options"><label class="mouse-range"><span>Чувствительность</span><input id="mouseSensitivity" type="range" min="0.5" max="4" step="0.25" value="1.25"><output id="mouseSensitivityValue">1.25×</output></label>
+          <label class="toggle"><span><strong>Инверсия X</strong><small>Изменить направление по горизонтали</small></span><span class="switch"><input type="checkbox" id="mouseInvertX"><span class="track"></span></span></label>
+          <label class="toggle"><span><strong>Инверсия Y</strong><small>Изменить направление по вертикали</small></span><span class="switch"><input type="checkbox" id="mouseInvertY"><span class="track"></span></span></label>
+          <label class="toggle"><span><strong>Горизонтальная ось — гироскоп Y</strong><small>Если движение Z работает неправильно</small></span><span class="switch"><input type="checkbox" id="mouseAxisYX"><span class="track"></span></span></label>
+        </div>
+      </div>
       <div class="panel"><div class="panel-head"><div><h3>Состояние устройства</h3><p class="sub">Действительные данные, без выдуманного заряда</p></div><span class="tag">LIVE</span></div>
         <div class="info-grid"><div class="info"><span>Wi-Fi</span><strong id="ssid">—</strong></div><div class="info"><span>Адрес</span><strong id="ip">—</strong></div><div class="info"><span>Батарея</span><strong id="battery">Не определена</strong></div><div class="info"><span>Зарядка</span><strong id="charging">Не определена</strong></div><div class="info"><span>Сенсор</span><strong id="touch">—</strong></div><div class="info"><span>Гироскоп</span><strong id="imu">—</strong></div><div class="info"><span>Последний жест</span><strong id="gesture">—</strong></div><div class="info"><span>Сеть / клиенты</span><strong id="clients">—</strong></div></div>
       </div>
     </section>
   </main>
-  <footer class="foot">STACH · Локальное управление через Wi-Fi · Без облака · v0.7</footer>
+  <footer class="foot">STACH · Wi-Fi + Bluetooth HID · Без облака · v0.8</footer>
 </div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script>
@@ -89,7 +114,8 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
   const names = {neutral:'Обычный',angry:'Злой',sleepy:'Сонный',curious:'Любопытный',happy:'Радостный'};
   const model = {expression:'neutral',pairingScreen:'face',chargingKnown:false,charging:false,batteryKnown:false,batteryPercent:null,
     touchReady:false,imuReady:false,ssid:demo?'Stach-DEMO':'—',ip:demo?'192.168.4.1':'—',lastGesture:'none',clients:0,
-    idleMotion:true,tiltEnabled:true,manualRemainingMs:0};
+    idleMotion:true,tiltEnabled:true,manualRemainingMs:0,mouseMode:false,mouseBleStarted:false,mouseConnected:false,
+    mouseCalibrated:false,mouseCalibratingSamples:0,mouseSensitivity:1.25,mouseInvertX:false,mouseInvertY:false,mouseAxisYX:false};
   let online = false, localX = 0, localY = 0, controller = null, lastSend = 0, toastTimer = 0;
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
   const ease = t => { t=clamp(t,0,1); return t*t*(3-2*t); };
@@ -114,6 +140,7 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
     $('touch').textContent=model.touchReady?'Подключён':'Недоступен';$('imu').textContent=model.imuReady?'Подключён':'Недоступен';
     $('gesture').textContent=model.lastGesture||'—';$('clients').textContent=String(model.clients??'—')+' клиентов';
     $('idleMotion').checked=!!model.idleMotion;$('tiltEnabled').checked=!!model.tiltEnabled;
+    applyMouseStatus();
     document.querySelectorAll('[data-emotion]').forEach(b=>b.classList.toggle('active',b.dataset.emotion===model.expression));
     document.querySelectorAll('[data-pairing]').forEach(b=>b.classList.toggle('active',b.dataset.pairing===model.pairingScreen));
     $('activeEmotion').textContent=names[model.expression]||'Обычный';
@@ -135,6 +162,75 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
     const value=e.target.checked;const res=await request('/api/settings',{key:id,value:value?'1':'0'});
     if(res.ok){model[id]=value;notify('Настройка сохранена');}else{e.target.checked=!value;notify(res.body.message||'Не удалось сохранить настройку');}
   });
+  function applyMouseStatus() {
+    const active=!!model.mouseMode,ready=active&&!!model.mouseConnected;
+    let message='Выключена';
+    if(active && !model.mouseConnected)message='Включена · сопряги Stach Mouse с Windows';
+    else if(active && !model.imuReady && !demo)message='Bluetooth подключён · гироскоп недоступен';
+    else if(active && !model.mouseCalibrated)message='Bluetooth подключён · держи Stach неподвижно ('+(model.mouseCalibratingSamples||0)+'/48)';
+    else if(active)message='Подключена и готова к работе';
+    $('mouseStatus').textContent=message;
+    $('mouseLed').className='mouse-led'+(ready?' ready':active?' pair':'');
+    $('mouseModeBtn').textContent=active?'Выключить мышь':'Включить мышь';
+    $('mouseCalibrateBtn').disabled=!active;
+    for(const id of ['mouseLeftBtn','mouseRightBtn','mouseScrollUp','mouseScrollDown']) $(id).disabled=!ready;
+    if(document.activeElement!==$('mouseSensitivity')) $('mouseSensitivity').value=model.mouseSensitivity;
+    $('mouseSensitivityValue').textContent=Number(model.mouseSensitivity).toFixed(2)+'×';
+    for(const id of ['mouseInvertX','mouseInvertY','mouseAxisYX']) $(id).checked=!!model[id];
+  }
+  $('mouseModeBtn').addEventListener('click',async()=>{
+    const next=!model.mouseMode;
+    const res=await request('/api/mouse/mode',{enabled:next?'1':'0'});
+    if(res.ok){model.mouseMode=next;model.mouseConnected=demo?next:false;model.imuReady=demo?next:model.imuReady;
+      model.mouseCalibrated=demo?next:false;applyMouseStatus();notify(next?'Mouse Mode включён · ищи Stach Mouse в Bluetooth':'Возврат в режим глаз');}
+    else notify(res.body.error||res.body.message||'Не удалось переключить режим');
+  });
+  $('mouseCalibrateBtn').addEventListener('click',async()=>{
+    const res=await request('/api/mouse/calibrate',{});
+    if(res.ok){model.mouseCalibrated=demo;model.mouseCalibratingSamples=0;applyMouseStatus();notify('Калибровка начата: держи Stach неподвижно');}
+    else notify(res.body.error||res.body.message||'Невозможно откалибровать');
+  });
+  $('mouseSensitivity').addEventListener('input',()=>{$('mouseSensitivityValue').textContent=Number($('mouseSensitivity').value).toFixed(2)+'×'});
+  $('mouseSensitivity').addEventListener('change',async()=>{
+    const next=Number($('mouseSensitivity').value);
+    const res=await request('/api/mouse/config',{key:'sensitivity',value:String(next)});
+    if(res.ok){model.mouseSensitivity=next;notify('Скорость мыши сохранена');}
+    else{$('mouseSensitivity').value=model.mouseSensitivity;notify(res.body.error||'Не удалось сохранить скорость');}
+    applyMouseStatus();
+  });
+  for(const id of ['mouseInvertX','mouseInvertY','mouseAxisYX'])$(id).addEventListener('change',async e=>{
+    const next=e.target.checked;
+    const key=id==='mouseInvertX'?'invertX':id==='mouseInvertY'?'invertY':'axisYX';
+    const res=await request('/api/mouse/config',{key,value:next?'1':'0'});
+    if(res.ok){model[id]=next;notify('Настройка мыши сохранена');}
+    else{e.target.checked=!next;notify(res.body.error||'Ошибка сохранения');}
+    applyMouseStatus();
+  });
+  for(const [id,button] of [['mouseLeftBtn','left'],['mouseRightBtn','right']])$(id).addEventListener('click',async()=>{
+    const res=await request('/api/mouse/click',{button});notify(res.ok?(button==='left'?'Левый клик':'Правый клик'):(res.body.error||'Нет Bluetooth-соединения'));
+  });
+  for(const [id,direction] of [['mouseScrollUp','up'],['mouseScrollDown','down']])$(id).addEventListener('click',async()=>{
+    const res=await request('/api/mouse/scroll',{direction});if(!res.ok)notify(res.body.error||'Нет Bluetooth-соединения');
+  });
+  // A second, optional way to move the PC cursor from the phone.
+  const mp=$('mousePad'),marker=$('mousePointer');let mx=0,my=0,mt=0,activePointer=null;
+  mp.addEventListener('pointerdown',e=>{
+    if(!model.mouseMode||!model.mouseConnected)return;
+    activePointer=e.pointerId;mx=e.clientX;my=e.clientY;mp.setPointerCapture(e.pointerId);
+  });
+  mp.addEventListener('pointermove',async e=>{
+    if(activePointer!==e.pointerId)return;
+    const dx=Math.max(-40,Math.min(40,Math.round(e.clientX-mx)));
+    const dy=Math.max(-40,Math.min(40,Math.round(e.clientY-my)));
+    const now=performance.now();if(!dx&&!dy)return;
+    mx=e.clientX;my=e.clientY;
+    marker.style.left=50+Math.max(-43,Math.min(43,((e.clientX-mp.getBoundingClientRect().left)/mp.clientWidth-.5)*86))+'%';
+    marker.style.top=50+Math.max(-43,Math.min(43,((e.clientY-mp.getBoundingClientRect().top)/mp.clientHeight-.5)*86))+'%';
+    if(now-mt<55)return;mt=now;
+    await request('/api/mouse/move',{dx:String(dx),dy:String(dy)});
+  });
+  function endMousePointer(e){if(activePointer!==e.pointerId)return;activePointer=null;marker.style.left='50%';marker.style.top='50%'}
+  mp.addEventListener('pointerup',endMousePointer);mp.addEventListener('pointercancel',endMousePointer);
   const joy=$('joystick'),knob=$('knob');
   async function sendGaze(x,y,force) {
     const now=performance.now();if(!force&&now-lastSend<150)return;lastSend=now;

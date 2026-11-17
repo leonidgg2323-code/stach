@@ -1,67 +1,55 @@
-# STACH — Stage 7: Phone Control Center
+# STACH — Stage 8: Bluetooth HID Mouse
 
-A responsive **local phone web panel** for Waveshare ESP32-S3 Touch AMOLED 1.43". This project carries forward stages 1–6, including centered, anti-aliased flat-white eyes, eyebrows for emotions only, touchscreen gesture recognition, IMU support, and the two on-device QR pairing screens.
+Independent eye-companion project for **Waveshare ESP32-S3 Touch AMOLED 1.43** (standard / B). This archive contains the whole Stage 7 project plus Stage 8's **Bluetooth Low Energy HID mouse** implementation, rather than a standalone patch. Screen panel alternatives are available (`stach-waveshare-sh8601`, `stach-waveshare-co5300`) but physical compatibility depends on the exact board revision. Do **not** use these profiles for the 1.43C without checking the schematic.
 
-## Open the preview first (no board required)
+## New features
 
-Double-click `preview/stach-panel.html`. The page automatically enters **DEMO** mode if opened directly as a file. Try the emotion buttons, look joystick, QR-screen selector, automatic-look and tilt switches, and simulated charging / falling / low battery. Demo actions never modify hardware.
+- **Stach Mouse**: BLE HID mouse reports sent directly to the paired Windows/Mac/Linux computer; **no desktop helper app** is needed (computer must support BLE). Pair in Windows **Settings → Bluetooth & devices → Add device → Bluetooth → Stach Mouse**.
+- Explicit opt-in: **swipe up** on Stach's face to enter Mouse Mode, or tap **Enable mouse** in its Wi-Fi control panel. **Long press** on the display (650 ms) to leave Mouse Mode, or turn it off in the panel. No HID input is generated while Mouse Mode is off or Bluetooth is disconnected. This does not require the PC to join the Stach Wi-Fi network.
+- First pairing: after enabling Mouse Mode, look for Bluetooth device `Stach Mouse`. Once paired, put Stach on a flat, still surface or hold completely still for roughly 48 consecutive IMU samples (~1 s) while the built-in gyroscope calibrates. The screen displays status `HOLD DEVICE STILL` until calibration finishes.
+- **Air mouse:** turn/tilt Stach to move the cursor. Default horizontal axis: gyroscope Z; vertical axis: gyroscope X. You can switch horizontal axis Z→Y, invert X/Y, and change sensitivity (0.5×–4×) in the web panel. Exact axis orientation must be calibrated with the **real** board.
+- **Touch gestures in Mouse Mode:** single tap = left click, double tap = right click, swipe up/down = vertical scrolling, swipe left/right = horizontal scrolling, long press = return to face. Single-tap action occurs *after* a ~350 ms double-tap disambiguation window. No accidental click before a second tap.
+- **Phone control:** the Stach panel at `http://192.168.4.1/` has on/off, status, calibration, click buttons, wheel buttons, and a small touchpad that forwards relative cursor motion to BLE. Phone must join Stach's own Wi-Fi AP; only a paired BLE computer receives inputs.
+- Cursor safety: gyroscope bias calibration, dead zone, low-pass smoothing, bounded velocities and per-update HID deltas, no jumps after reconnection or stalled sampling.
 
-`preview/panel-390px.png` and `preview/panel-1280px.png` are screenshots taken in actual Chromium at phone and desktop widths. **They are previews, not screenshots of the real AMOLED.**
+## Technical approach
 
-## Real device
+`include/stach_mouse.h` implements portable (host-testable) state, calibration, relative motion calculations and gesture-action mapping. `include/stach_ble_mouse.h` owns the Arduino BLE HID transport, using the PlatformIO `t-vk/ESP32 BLE Mouse@0.3.1` dependency. `include/stach_mouse_ui.h` draws the mouse mode on the circular AMOLED. `src/main.cpp` integrates BLE, QMI8658 readings, FT3168 touch gesture events and Wi-Fi APIs. `web/stach-panel.html` and `include/stach_web.h` (generated) contain exactly the same phone panel as `preview/stach-panel.html`.
 
-1. Flash the project built for your exact supported **standard/B** Waveshare controller profile (SH8601 or CO5300; do **not** flash on a C revision without a matching verified BSP).
-2. On the display, long-press to show the Wi-Fi QR. Scan it and join the device's `Stach-XXXXXX` WPA2 network. The phone may warn there is no internet, because this is a local access point.
-3. Open **http://192.168.4.1/** on the phone, or use the portal QR on Stach. You should see the same panel as the offline demo (the same HTML is embedded in the firmware).
-4. Use the controls; the panel refreshes status every 2.5 seconds. It shows an offline indicator if the device is unreachable and recovers automatically.
+Bluetooth starts **lazily**, on the first entry into Mouse Mode. In `ESP32 BLE Mouse 0.3.1`, `BleMouse::end()` is a no-op; BLE advertising may continue when you exit mouse mode. **All HID send methods are individually gated by `engine.active()` and connection state**. Rebooting Stach exits Mouse Mode completely. A future lifecycle stage can replace the BLE stack if stopping advertising is needed.
 
-## Working API and behaviors
+## Builds and testing
 
-| Method + route | Purpose |
-| --- | --- |
-| `GET /` | Mobile-first panel embedded in the firmware; no CDN, external fonts, cloud, or internet needed |
-| `GET /api/status` | SSID/IP, active emotion and pairing screen, gesture/IMU availability, uptime, clients, current toggles, known/unknown battery and charger state, manual override timer; **no Wi-Fi password** |
-| `POST /api/expression?value=...` | One of `neutral`, `angry`, `sleepy`, `curious`, `happy`; manual override for 8 seconds |
-| `POST /api/pairing?mode=...` | `face`, `wifi`, `portal`; device screen reverts after 90 s |
-| `POST /api/gaze?x=...&y=...` | Normalized X and Y in `[-1,1]`; rejected if non-numeric/out-of-range; remote motion expires automatically after 2.4 seconds and is confined to the **center** of the circular screen |
-| `GET /api/settings` | Current `idleMotion` and `tiltEnabled` switch states |
-| `POST /api/settings?key=...&value=...` | Persist `idleMotion` or `tiltEnabled` as `0/1` in ESP32 NVS, with error handling |
+- `sh tools/test_core.sh` runs the existing tests and new **mouse policy** tests on host C++17.
+- `python3 tools/check_panel.py` checks the embedded panel, JS syntax and endpoint references.
+- `pio run -e stach-network-prototype -e stach-waveshare-sh8601 -e stach-waveshare-co5300` is the PlatformIO build check in `.github/workflows/check.yml`.
+- In the extracted ZIP, double click `preview/stach-panel.html` to try offline demo controls. The demo cannot actually move your PC cursor.
+- No full PlatformIO build or on-device Bluetooth pairing tests were performed **at the time of packaging**. GitHub Actions will check full compilation after you push, and the real device and Windows pairing still require hardware verification. Do not intentionally drop the hardware to test fall detection.
 
-**Design:** A black AMOLED surface with two solid-white eyes, black pupils, no reflections, glow, lips, or surprise expression. The panel preview uses browser CSS and represents an approximate animation; the device uses its existing RGB565 drawing engine.
+### Source-to-release workflow with GitHub Desktop
 
-**Battery/charging:** The status panel shows "Не определена" unless a *real* calibrated battery or charging-state provider has been connected. In the standalone preview, the demonstration controls are intentionally simulated. Falling/charging calibration and physical hardware validation remain in the final hardware stage. Brightness slider is intentionally **not shown** until the panel's supported brightness API has been verified.
+1. Extract the **contents** of this ZIP into the cloned `stach` repository root; replace older files.
+2. In GitHub Desktop commit e.g. `Stage 8: BLE HID Mouse`, then click **Push origin**.
+3. Open `https://github.com/leonidgg2323-code/stach/actions` and check the new three-profile build. If it fails, share the job's compiler error (not just the red cross).
+4. Choose the exact AMOLED controller corresponding to your board revision before flashing. Physical BLE, calibration and display are not verified by passing cloud compilation alone.
 
-**Security:** The portal uses plain local HTTP and relies on the Stach AP password to restrict access. Anyone who learns that password and joins the AP can use its control API. Do not connect untrusted people to the AP. No persistent password is served in `/api/status`, in the HTML, or through serial output. No remote/cloud control is included.
+## REST interface (from the Stach Wi-Fi AP only)
 
-## Files added/changed
+All changing requests use `POST`; the local AP password is the initial access boundary. Do **not** expose the control panel to the internet.
 
-- `web/stach-panel.html`: the authoritative frontend source; open directly as an offline demo.
-- `include/stach_web.h`: automatically generated PROGMEM copy of the exact HTML.
-- `tools/build_web_header.py`: regenerate embedded HTML after frontend changes.
-- `include/stach_control.h`: validated remote gaze + settings payload parsing; boundary-safe motion.
-- `src/main.cpp`: wired web UI, new API routes, persisted toggle settings and centered remote control.
-- `test/control_test.cpp`: 1,809 portable C++ assertions against invalid values, timing wraparound and eye movement bounds.
-- `tools/check_panel.py`: DOM/API correspondence check and Node JavaScript syntax check.
-- `tools/browser_smoke.py`: optional Chromium interaction tests with phone and desktop screenshots.
-- `.github/workflows/check.yml`: includes the new portable web checks and builds all three PlatformIO environments.
+| URL | Form fields | Effect |
+|---|---|---|
+| `/api/status` | GET | Includes `mouseMode`, `mouseBleStarted`, `mouseConnected`, `mouseCalibrated`, sensitivity and orientation settings |
+| `/api/mouse/mode` | `enabled=1` or `0` | Enable or disable Mouse Mode. Prototype board returns HTTP 503. |
+| `/api/mouse/calibrate` | (none) | Reset gyro calibration; requires Mouse Mode. |
+| `/api/mouse/config` | `key=sensitivity&value=1.25` | Save sensitivity 0.5–4.0 |
+| `/api/mouse/config` | `key=invertX|invertY|axisYX&value=0|1` | Save axis mapping / inversion |
+| `/api/mouse/click` | `button=left|right|middle` | BLE click, only when enabled and connected |
+| `/api/mouse/scroll` | `direction=up|down|left|right` | BLE scroll; only when enabled and connected |
+| `/api/mouse/move` | `dx=-40..40&dy=-40..40` | Relative BLE movement; only when enabled and connected |
 
-## Reproduce tests
+**Known limitations:** no verified on-device calibration yet; sensor mounting orientation may need inversion. The old BLE library doesn't stop advertising on exit. BLE HID bonding is delegated to the library/OS, not an independent authorization protocol. The phone's local HTTP endpoints are not hardened against a malicious page running on an already-connected network; keep Stach's Wi-Fi password private and don't port-forward the AP. Battery measurement and charging detection are still pending later stages.
 
-```sh
-sh tools/test_core.sh
-python3 tools/check_panel.py
-```
+## Credits
 
-Optional screenshot / UI smoke tests if Chromium and Playwright for Python are installed:
-
-```sh
-python3 tools/browser_smoke.py
-```
-
-CI also runs PlatformIO builds for `stach-network-prototype`, `stach-waveshare-sh8601`, `stach-waveshare-co5300`. A passing CI build confirms **compilation**, not the physical device, QR scanning on a phone, charger sensing or touch/IMU calibration.
-
-## Upload to GitHub Desktop
-
-Extract the **contents** of the ZIP into your locally cloned `stach` folder (not an extra nested directory). Replace matching files. In GitHub Desktop choose **Commit to main** and **Push origin**. Follow results at https://github.com/leonidgg2323-code/stach/actions. The ChatGPT GitHub connection has been read-only in practice (HTTP 403 for writes).
-
-**Next independent stage:** 8, Bluetooth HID wireless mouse to control Windows; not implemented by this stage.
+Uses [T-vK/ESP32-BLE-Mouse](https://github.com/T-vK/ESP32-BLE-Mouse), a third-party library. Stach remains an independent project inspired by eye companions, including [Pip-KeyPet](https://github.com/NovikovVisuals/Pip-KeyPet); no code from that project is included.

@@ -17,7 +17,10 @@ e=Elements();e.feed(html)
 assert len(e.ids) == len(set(e.ids)), 'Duplicate DOM ids'
 for item in ['app','connection','connectionText','screen','eyes','leftEye','rightEye','leftPupil','rightPupil',
              'joystick','knob','centerGaze','idleMotion','tiltEnabled','ssid','ip','battery','charging','touch',
-             'imu','gesture','clients','toast','pairingLabel','emotionButtons','faceTag','activeEmotion']:
+             'imu','gesture','clients','toast','pairingLabel','emotionButtons','faceTag','activeEmotion',
+             'mousePanel','mouseModeBtn','mouseStatus','mouseLed','mousePad','mousePointer','mouseCalibrateBtn',
+             'mouseSensitivity','mouseSensitivityValue','mouseInvertX','mouseInvertY','mouseAxisYX',
+             'mouseLeftBtn','mouseRightBtn','mouseScrollUp','mouseScrollDown']:
     assert item in e.ids, f'Missing control: {item}'
 assert set(d.get('data-emotion') for _,d in e.attrs if 'data-emotion' in d)=={'neutral','angry','sleepy','curious','happy'}
 assert set(d.get('data-pairing') for _,d in e.attrs if 'data-pairing' in d)=={'face','wifi','portal'}
@@ -27,7 +30,9 @@ with tempfile.NamedTemporaryFile(suffix='.js',mode='w',encoding='utf-8') as f:
     f.write(js);f.flush()
     subprocess.run(['node','--check',f.name],check=True)
 main=(root/'src/main.cpp').read_text(encoding='utf-8')
-for endpoint in ['/api/status','/api/expression','/api/pairing','/api/gaze','/api/settings']:
+for endpoint in ['/api/status','/api/expression','/api/pairing','/api/gaze','/api/settings',
+                 '/api/mouse/mode','/api/mouse/calibrate','/api/mouse/config','/api/mouse/click',
+                 '/api/mouse/scroll','/api/mouse/move']:
     assert endpoint in html and endpoint in main, f'API contract mismatch: {endpoint}'
 assert 'stach::web::page' in main
 assert 'remoteGaze.apply(frame,now)' in main

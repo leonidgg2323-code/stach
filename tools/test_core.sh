@@ -30,3 +30,6 @@ c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/pairing_test.cpp -o .build/p
 
 c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/control_test.cpp -o .build/control_test
 .build/control_test
+
+c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/mouse_test.cpp -o .build/mouse_test
+.build/mouse_test
