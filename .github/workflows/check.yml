@@ -9,6 +9,8 @@ jobs:
         run: sh tools/test_core.sh
       - name: Verify embedded panel and JavaScript
         run: python3 tools/check_panel.py
+      - name: Test BLE compatibility adapter
+        run: python3 tools/test_ble_patch.py
   firmware:
     runs-on: ubuntu-latest
     steps:
@@ -18,5 +20,5 @@ jobs:
           python-version: '3.11'
       - name: Install PlatformIO
         run: pip install platformio
-      - name: Build network prototype and Waveshare BLE HID firmware
-        run: pio run -e stach-network-prototype -e stach-waveshare-sh8601 -e stach-waveshare-co5300
+      - name: Install dependencies, patch Arduino 3 BLE API and compile all profiles
+        run: python3 tools/build_firmware.py

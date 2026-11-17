@@ -2,6 +2,16 @@
 
 Independent eye-companion project for **Waveshare ESP32-S3 Touch AMOLED 1.43** (standard / B). This archive contains the whole Stage 7 project plus Stage 8's **Bluetooth Low Energy HID mouse** implementation, rather than a standalone patch. Screen panel alternatives are available (`stach-waveshare-sh8601`, `stach-waveshare-co5300`) but physical compatibility depends on the exact board revision. Do **not** use these profiles for the 1.43C without checking the schematic.
 
+## CI fix — Arduino-ESP32 3.x and ESP32 BLE Mouse 0.3.1
+
+The Stage 8 GitHub Actions run `44053213095` failed because `t-vk/ESP32 BLE Mouse@0.3.1` passes C++ `std::string` values to Arduino-ESP32 3.x APIs accepting Arduino `String`. The portable core and network-only firmware were successful, but both hardware BLE builds failed.
+
+This revision includes `tools/patch_ble_mouse.py`, which patches **only the two known incompatible calls** in PlatformIO's installed dependency copies. The patched calls wrap `std::string::c_str()` in Arduino `String`. It is version-specific, idempotent, and refuses missing or changed source. Upstream T-vK source remains owned and downloaded by PlatformIO; this repository does not vendor/copy it.
+
+**Required build command:** `python tools/build_firmware.py` from the project root (needs `pio` on PATH). This command first installs declared dependencies, then patches the two `BleMouse.cpp` copies, and finally runs all three firmware builds. GitHub Actions uses the same command. **Do not use plain `pio run` on a clean machine** for the hardware BLE profiles without running the compatibility patch first, or the original library type errors will recur. After a dependency reinstall, run the wrapper again.
+
+The patch has host tests: `python tools/test_ble_patch.py`. A green GitHub Actions build shows compile success but does not guarantee that pairing and mouse controls work on real hardware.
+
 ## New features
 
 - **Stach Mouse**: BLE HID mouse reports sent directly to the paired Windows/Mac/Linux computer; **no desktop helper app** is needed (computer must support BLE). Pair in Windows **Settings → Bluetooth & devices → Add device → Bluetooth → Stach Mouse**.
