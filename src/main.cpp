@@ -11,6 +11,7 @@
 #include "stach_motion.h"
 #include "stach_pairing.h"
 #include "stach_control.h"
+#include "stach_modes.h"
 #include "stach_mouse.h"
 #include "stach_power.h"
 #include "stach_web.h"
@@ -38,6 +39,7 @@ static char qrPayload[128] = {};
 static char portalUrl[64] = {};
 static stach::pairing::Controller pairing;
 static stach::control::Settings settings;
+static stach::modes::Appearance appearance;
 static stach::mouse::Engine airMouse;
 static stach::control::RemoteGaze remoteGaze;
 static bool initialized = false;
@@ -62,12 +64,19 @@ static stach::touch::Recognizer touchRecognizer;
 static bool touchReady=false;
 static uint32_t lastTouchValidAt=0;
 struct AmoledSurface {
-  void clear(uint16_t color) { stach::display::panel()->fillScreen(color); }
+  uint8_t brightness=100;
+  uint16_t shaded(uint16_t c) const {
+    if(brightness==100)return c;
+    const uint32_t r=(c>>11)&31u, g=(c>>5)&63u, b=c&31u;
+    return uint16_t((((r*brightness+50u)/100u)<<11) |
+      (((g*brightness+50u)/100u)<<5) | ((b*brightness+50u)/100u));
+  }
+  void clear(uint16_t color) { stach::display::panel()->fillScreen(shaded(color)); }
   void hline(int x,int y,int w,uint16_t color) {
     if(y<0 || y>=stach::face::HEIGHT || w<=0)return;
     if(x<0){w+=x;x=0;}
     if(x+w>stach::face::WIDTH)w=stach::face::WIDTH-x;
-    if(w>0)stach::display::panel()->drawFastHLine(x,y,w,color);
+    if(w>0)stach::display::panel()->drawFastHLine(x,y,w,shaded(color));
   }
 };
 #endif
@@ -88,11 +97,31 @@ static bool setMouseMode(bool on, uint32_t now) {
 #endif
 }
 
+// One central transition point prevents Face/Mouse/QR overlays from overlapping.
+static stach::modes::Mode currentMode() {
+  return stach::modes::fromState(airMouse.active(),pairing.screen);
+}
+static bool switchMode(stach::modes::Mode next,uint32_t now) {
+#ifdef STACH_WAVESHARE_BOARD
+  const bool supportsMouse=true;
+#else
+  const bool supportsMouse=false;
+#endif
+  const stach::modes::Plan plan=stach::modes::transition(currentMode(),next,supportsMouse);
+  if(!plan.accepted)return false;
+  if(plan.disableMouse && !setMouseMode(false,now))return false;
+  if(plan.enableMouse && !setMouseMode(true,now))return false;
+  pairing.show(plan.screen,now);
+  if(next!=stach::modes::Mode::Mouse)remoteGaze.clear();
+  saver.activity(now);
+  return true;
+}
+
 #ifdef STACH_WAVESHARE_BOARD
 static void mouseGesture(stach::touch::Gesture gesture,uint32_t now) {
   using stach::mouse::Action;
   switch(stach::mouse::gestureAction(gesture)) {
-    case Action::Exit: setMouseMode(false,now); break;
+    case Action::Exit: switchMode(stach::modes::Mode::Face,now); break;
     case Action::LeftClick: hidMouse.click(airMouse,stach::mouse::Button::Left);break;
     case Action::RightClick: hidMouse.click(airMouse,stach::mouse::Button::Right);break;
     case Action::ScrollUp: hidMouse.scroll(airMouse,3,0);break;
@@ -137,6 +166,11 @@ void setup() {
   saver.enabled = preferences.getBool("psaver",true);
   settings.idleMotion = preferences.getBool("idle", true);
   settings.tiltEnabled = preferences.getBool("tilt", true);
+  appearance.brightness=preferences.getUChar("eyeBright",100);
+  appearance.gazeActivity=preferences.getUChar("eyeMotion",100);
+  appearance.blink=preferences.getBool("blink",true);
+  appearance.sanitize();
+  character.blinkEnabled=appearance.blink;
   stach::mouse::Config mouseConf;
   mouseConf.sensitivity=preferences.getFloat("msens",1.25f);
   if(!stach::mouse::validSensitivity(mouseConf.sensitivity)) mouseConf.sensitivity=1.25f;
@@ -175,6 +209,7 @@ void setup() {
     String body = String("{\"name\":\"Stach\",\"expression\":\"") + stach::emotionName(character.current) +
       "\",\"ip\":\"" + WiFi.softAPIP().toString() + "\",\"ssid\":\"" + ssid +
       "\",\"pairingScreen\":\"" + stach::pairing::name(pairing.screen) +
+      "\",\"deviceMode\":\"" + stach::modes::name(currentMode()) +
       "\",\"chargingKnown\":" + (behavior.chargingKnown?"true":"false") +
       ",\"charging\":" + (behavior.charging?"true":"false") +
       ",\"batteryKnown\":" + (behavior.batteryKnown?"true":"false") +
@@ -183,6 +218,9 @@ void setup() {
       ",\"batteryMv\":" + (batteryMeter.known()?String(batteryMeter.batteryMilliVolts):String("null")) +
       ",\"batteryCalibrated\":" + (stach::power::validRatio(batteryMeter.ratio)?"true":"false") +
       ",\"powerSaver\":" + (saver.enabled?"true":"false") +
+      ",\"eyeBrightness\":" + String(appearance.brightness) +
+      ",\"gazeActivity\":" + String(appearance.gazeActivity) +
+      ",\"blinkEnabled\":" + (appearance.blink?"true":"false") +
       ",\"screenMode\":\"" + stach::power::modeName(saver.current) + "\"" +
       ",\"touchReady\":" +
 #ifdef STACH_WAVESHARE_BOARD
@@ -239,6 +277,56 @@ void setup() {
     manualUntil=uint64_t(esp_timer_get_time())/1000ULL+8000; // 8-second manual preview override
     server.send(200,"text/plain",String("Expression: ")+stach::emotionName(character.current));
   });
+  // Centralized mode endpoint: explicit, reversible, and nonpersistent.
+  server.on("/api/mode", HTTP_POST, [](){
+    stach::modes::Mode next;
+    if(!stach::modes::parse(server.arg("mode").c_str(),next)) {
+      server.send(400,"application/json","{\"error\":\"Invalid mode\"}");return;
+    }
+    if(!switchMode(next,millis())) {
+      server.send(503,"application/json","{\"error\":\"Mouse mode requires ESP32 BLE hardware\"}");return;
+    }
+    server.sendHeader("Cache-Control","no-store");
+    server.send(200,"application/json",String("{\"ok\":true,\"mode\":\"")+stach::modes::name(currentMode())+"\"}");
+  });
+  // Only validated appearance preferences are stored in NVS.
+  server.on("/api/appearance", HTTP_GET, [](){
+    server.sendHeader("Cache-Control","no-store");
+    server.send(200,"application/json",String("{\"brightness\":")+String(appearance.brightness)+
+      ",\"gazeActivity\":"+String(appearance.gazeActivity)+
+      ",\"blink\":"+(appearance.blink?"true":"false")+"}");
+  });
+  server.on("/api/appearance", HTTP_POST, [](){
+    const String key=server.arg("key"),value=server.arg("value");
+    if(key=="brightness" || key=="gazeActivity") {
+      unsigned n=0;
+      if(!stach::modes::parsePercent(value.c_str(),n) ||
+         (key=="brightness"?!stach::modes::validBrightness(n):!stach::modes::validGazeActivity(n))) {
+        server.send(400,"application/json","{\"error\":\"Value outside allowed range\"}");return;
+      }
+      const char* store=key=="brightness"?"eyeBright":"eyeMotion";
+      if(preferences.putUChar(store,uint8_t(n))!=sizeof(uint8_t)) {
+        server.send(500,"application/json","{\"error\":\"NVS save failed\"}");return;
+      }
+      if(key=="brightness")appearance.brightness=uint8_t(n);
+      else appearance.gazeActivity=uint8_t(n);
+    } else if(key=="blink") {
+      bool b=false;
+      if(!stach::control::parseSwitch(value.c_str(),b)) {
+        server.send(400,"application/json","{\"error\":\"Blink must be 0 or 1\"}");return;
+      }
+      if(preferences.putBool("blink",b)!=1) {
+        server.send(500,"application/json","{\"error\":\"NVS save failed\"}");return;
+      }
+      appearance.blink=b;
+      character.blinkEnabled=b;
+    } else {
+      server.send(400,"application/json","{\"error\":\"Unknown appearance setting\"}");return;
+    }
+    saver.activity(millis());
+    server.sendHeader("Cache-Control","no-store");
+    server.send(200,"application/json","{\"ok\":true}");
+  });
   // AP clients can ask the physical Stach to display a QR code.
   // Never return the persistent Wi-Fi password over /api/status.
   server.on("/api/pairing", HTTP_POST, [](){
@@ -247,8 +335,10 @@ void setup() {
     if(!stach::pairing::parseScreen(server.arg("mode").c_str(),next)){
       server.send(400,"text/plain","Invalid pairing screen");return;
     }
-    if(airMouse.active())setMouseMode(false,millis());
-    pairing.show(next,millis());
+    const stach::modes::Mode target = next==stach::pairing::Screen::Wifi?
+      stach::modes::Mode::Wifi:next==stach::pairing::Screen::Portal?
+      stach::modes::Mode::Portal:stach::modes::Mode::Face;
+    if(!switchMode(target,millis())){server.send(503,"text/plain","Mode unavailable");return;}
     server.send(200,"text/plain",String("Stach screen: ")+stach::pairing::name(pairing.screen));
   });
   // A short-lived, bounded remote gaze. Values are normalized [-1, 1].
@@ -331,7 +421,7 @@ void setup() {
     if(!stach::control::parseSwitch(server.arg("enabled").c_str(),next)) {
       server.send(400,"application/json","{\"error\":\"Invalid mode\"}");return;
     }
-    if(!setMouseMode(next,millis())) {
+    if(!switchMode(next?stach::modes::Mode::Mouse:stach::modes::Mode::Face,millis())) {
       server.send(503,"application/json","{\"error\":\"Hardware BLE unavailable\"}");return;
     }
     server.send(200,"application/json","{\"ok\":true}");
@@ -455,7 +545,7 @@ void loop() {
           mouseGesture(event.kind,tickMs);
         } else if(pairing.screen==stach::pairing::Screen::Face &&
                   event.kind==stach::touch::Gesture::SwipeUp) {
-          setMouseMode(true,tickMs); // deliberate device gesture to enter Mouse Mode
+          switchMode(stach::modes::Mode::Mouse,tickMs); // deliberate gesture to enter Mouse Mode
         } else {
           const bool changedPairing = pairing.gesture(event.kind,tickMs);
           if(!changedPairing && pairing.screen==stach::pairing::Screen::Face) {
@@ -502,7 +592,11 @@ void loop() {
       lastFrame=now;
       drawnScreen=stach::pairing::Screen::Face;
       AmoledSurface surface;
+      surface.brightness=appearance.brightness; // flat RGB565 eye intensity, no glow
       stach::face::State frame=character.sample(now);
+      const float motionScale=float(appearance.gazeActivity)/100.f;
+      frame.gazeX*=motionScale;frame.gazeY*=motionScale;
+      frame.offsetX*=motionScale;frame.offsetY*=motionScale;
       if (!settings.idleMotion) { frame.gazeX=0; frame.gazeY=0; frame.offsetX=0; frame.offsetY=0; }
       const stach::motion::Tilt neutralTilt;
       gestureGaze.apply(frame,now,settings.tiltEnabled?tilt:neutralTilt);

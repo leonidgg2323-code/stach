@@ -31,6 +31,14 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
     .screen.happy .brow{opacity:1;transform:translateY(-4px)}
     .charge-symbol{position:absolute;top:9%;left:50%;transform:translateX(-50%);display:none;font-size:14px;color:#8ee3af;white-space:nowrap}.screen.charging .charge-symbol{display:block}
     .charge-arc{position:absolute;inset:4%;border-radius:50%;border:2px solid transparent;border-top-color:#58d68d;display:none;pointer-events:none}.screen.charging .charge-arc{display:block;animation:charge 2s linear infinite}@keyframes charge{to{transform:rotate(360deg)}}
+    .mode-overlay{display:none;position:absolute;inset:0;align-items:center;justify-content:center;flex-direction:column;gap:12px;text-align:center;font-weight:750;letter-spacing:1px;color:#fff;font-size:clamp(13px,4vw,22px);padding:18%}
+    .mode-overlay small{font-size:12px;font-weight:400;color:#aeb7c5;letter-spacing:0;line-height:1.5}
+    .screen.mode-other .eyes-group{display:none}.screen.mode-other .mode-overlay{display:flex}
+    .screen.mode-other .charge-symbol,.screen.mode-other .charge-arc{display:none}
+    .mode-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+    .appearance-control{display:flex;align-items:center;gap:10px;font-size:12px;margin:16px 0 4px;color:#ccd4e0}
+    .appearance-control label{min-width:123px}.appearance-control input{min-width:0;flex:1;accent-color:#d3dfff}
+    .appearance-control output{min-width:44px;text-align:right;color:#fff;font-variant-numeric:tabular-nums}
     .device-note{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
     .buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.btn{padding:12px 10px;border:1px solid #3a404c;color:#f1f2f6;background:#222833;border-radius:12px;min-height:43px;transition:background .16s,border-color .16s;white-space:normal}.btn:hover{background:#2d3442}.btn.active{background:#333d52;border-color:#aab7d0;color:#fff}.btn.primary{background:#e9ecfa;border-color:#e9ecfa;color:#151b26;font-weight:700}.btn[disabled]{opacity:.5;cursor:not-allowed}.buttons .wide{grid-column:1/-1}
     .joy-wrap{display:flex;align-items:center;gap:18px;justify-content:space-between}.joystick{width:clamp(145px,41vw,185px);max-width:100%;aspect-ratio:1;border:1px solid #333c49;background:radial-gradient(circle,#242b37 0 6px,transparent 7px),linear-gradient(90deg,transparent 49.7%,#3a404d 50%,transparent 50.3%),linear-gradient(0deg,transparent 49.7%,#3a404d 50%,transparent 50.3%),#1b202a;border-radius:50%;position:relative;touch-action:none;flex-shrink:0;cursor:crosshair}
@@ -66,7 +74,7 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
   <main class="layout">
     <section class="stack" aria-label="Превью и движения">
       <div class="panel"><div class="panel-head"><div><h3>Лицо Stach</h3><p class="sub">Предпросмотр поведения · не видеотрансляция</p></div><span class="tag" id="faceTag">NEUTRAL</span></div>
-        <div class="device-holder"><div class="device"><div class="screen neutral" id="screen"><div class="charge-arc"></div><div class="charge-symbol">⚡ Зарядка</div><div class="eyes-group" id="eyes"><div class="brow left"></div><div class="brow right"></div><div class="eye left" id="leftEye"><div class="pupil" id="leftPupil"></div></div><div class="eye right" id="rightEye"><div class="pupil" id="rightPupil"></div></div></div></div></div></div>
+        <div class="device-holder"><div class="device"><div class="screen neutral" id="screen"><div class="mode-overlay" id="modePreview">MOUSE<small>Управление компьютером</small></div><div class="charge-arc"></div><div class="charge-symbol">⚡ Зарядка</div><div class="eyes-group" id="eyes"><div class="brow left"></div><div class="brow right"></div><div class="eye left" id="leftEye"><div class="pupil" id="leftPupil"></div></div><div class="eye right" id="rightEye"><div class="pupil" id="rightPupil"></div></div></div></div></div></div>
         <div class="device-note"><span id="activeEmotion">Обычный</span><span>·</span><span id="pairingLabel">Экран: глаза</span></div>
       </div>
       <div class="panel"><div class="panel-head"><div><h3>Управление взглядом</h3><p class="sub">Перемещение внутри безопасной центральной зоны</p></div><span class="tag">TOUCHPAD</span></div>
@@ -75,6 +83,10 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
       <div class="panel demo-only"><h3>Демонстрация реакций</h3><p class="sub">Работает только в скачанном HTML. Не отправляет события реальному устройству.</p><div class="buttons" style="margin-top:12px"><button class="btn" data-demo="charging">Подключить зарядку</button><button class="btn" data-demo="fall">Падение</button><button class="btn" data-demo="sleepy">Низкий заряд</button><button class="btn" data-demo="reset">Вернуть обычное</button></div></div>
     </section>
     <section class="stack" aria-label="Панель управления">
+      <div class="panel" id="modesPanel"><div class="panel-head"><div><h3>Режим Stach</h3><p class="sub">Только один режим активен одновременно</p></div><span class="tag">MODES</span></div>
+        <div class="mode-buttons"><button class="btn active" data-mode="face">● Face</button><button class="btn" data-mode="mouse">▣ Mouse</button><button class="btn" data-mode="wifi">▦ Wi-Fi QR</button><button class="btn" data-mode="portal">▦ QR панели</button></div>
+        <p class="mouse-help">После перезагрузки всегда включается Face. Mouse запускается только вручную; отключение режима блокирует HID-команды.</p>
+      </div>
       <div class="panel"><div class="panel-head"><div><h3>Эмоции</h3><p class="sub">Ручной выбор действует 8 секунд, затем Stach реагирует на реальные события</p></div></div>
         <div class="buttons" id="emotionButtons"><button class="btn active" data-emotion="neutral">Обычный</button><button class="btn" data-emotion="angry">Злой</button><button class="btn" data-emotion="sleepy">Сонный</button><button class="btn" data-emotion="curious">Любопытный</button><button class="btn wide" data-emotion="happy">Радостный</button></div>
       </div>
@@ -84,6 +96,10 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
       <div class="panel"><div class="panel-head"><div><h3>Настройки поведения</h3><p class="sub">Сохраняются в памяти Stach</p></div></div>
         <label class="toggle"><span><strong>Живой взгляд</strong><small>Самостоятельные мягкие движения глаз</small></span><span class="switch"><input type="checkbox" id="idleMotion" checked><span class="track"></span></span></label>
         <label class="toggle"><span><strong>Реакция на наклон</strong><small>Небольшой сдвиг глаз от акселерометра</small></span><span class="switch"><input type="checkbox" id="tiltEnabled" checked><span class="track"></span></span></label>
+        <label class="toggle"><span><strong>Моргание</strong><small>Можно отключить автоматическое моргание</small></span><span class="switch"><input type="checkbox" id="blinkEnabled" checked><span class="track"></span></span></label>
+        <div class="appearance-control"><label for="eyeBrightness">Яркость глаз</label><input id="eyeBrightness" type="range" min="20" max="100" step="5" value="100"><output id="eyeBrightnessValue">100%</output></div>
+        <div class="appearance-control"><label for="gazeActivity">Активность взгляда</label><input id="gazeActivity" type="range" min="20" max="100" step="5" value="100"><output id="gazeActivityValue">100%</output></div>
+        <p class="mouse-help">Яркость изменяет белизну графики (RGB565), а не напряжение питания AMOLED. Активность регулирует только самостоятельное движение, не свайпы.</p>
       </div>
       <div class="panel" id="mousePanel"><div class="panel-head"><div><h3>Bluetooth-мышь</h3><p class="sub">Управление компьютером без кабеля</p></div><span class="tag">BLE HID</span></div>
         <div class="mouse-status"><span class="mouse-led" id="mouseLed"></span><strong id="mouseStatus">Выключена</strong></div>
@@ -116,7 +132,7 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
       </div>
     </section>
   </main>
-  <footer class="foot">STACH · Wi-Fi + Bluetooth HID · Без облака · v0.8</footer>
+  <footer class="foot">STACH · Wi-Fi + Bluetooth HID · Без облака · v0.10</footer>
 </div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script>
@@ -126,9 +142,9 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
   document.body.classList.toggle('demo', demo);
   const $ = id => document.getElementById(id);
   const names = {neutral:'Обычный',angry:'Злой',sleepy:'Сонный',curious:'Любопытный',happy:'Радостный'};
-  const model = {expression:'neutral',pairingScreen:'face',chargingKnown:false,charging:false,batteryKnown:false,batteryPercent:null,
+  const model = {expression:'neutral',pairingScreen:'face',deviceMode:'face',chargingKnown:false,charging:false,batteryKnown:false,batteryPercent:null,
     touchReady:false,imuReady:false,ssid:demo?'Stach-DEMO':'—',ip:demo?'192.168.4.1':'—',lastGesture:'none',clients:0,
-    idleMotion:true,tiltEnabled:true,powerSaver:true,screenMode:'normal',batteryAdcMv:null,batteryMv:null,batteryCalibrated:false,
+    idleMotion:true,tiltEnabled:true,blinkEnabled:true,eyeBrightness:100,gazeActivity:100,powerSaver:true,screenMode:'normal',batteryAdcMv:null,batteryMv:null,batteryCalibrated:false,
     manualRemainingMs:0,mouseMode:false,mouseBleStarted:false,mouseConnected:false,
     mouseCalibrated:false,mouseCalibratingSamples:0,mouseSensitivity:1.25,mouseInvertX:false,mouseInvertY:false,mouseAxisYX:false};
   let online = false, localX = 0, localY = 0, controller = null, lastSend = 0, toastTimer = 0;
@@ -160,11 +176,18 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
     $('touch').textContent=model.touchReady?'Подключён':'Недоступен';$('imu').textContent=model.imuReady?'Подключён':'Недоступен';
     $('gesture').textContent=model.lastGesture||'—';$('clients').textContent=String(model.clients??'—')+' клиентов';
     $('idleMotion').checked=!!model.idleMotion;$('tiltEnabled').checked=!!model.tiltEnabled;
+    $('blinkEnabled').checked=!!model.blinkEnabled;
+    for(const k of ['eyeBrightness','gazeActivity']){
+      if(document.activeElement!==$(k))$(k).value=model[k];
+      $(k+'Value').textContent=model[k]+'%';
+    }
+    document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===model.deviceMode));
+    $('modePreview').innerHTML=({mouse:'MOUSE<small>Bluetooth HID</small>',wifi:'WI-FI QR<small>Сканируй QR на физическом Stach</small>',portal:'WEB QR<small>Открой панель на телефоне</small>'}[model.deviceMode]||'');
     applyMouseStatus();
     document.querySelectorAll('[data-emotion]').forEach(b=>b.classList.toggle('active',b.dataset.emotion===model.expression));
     document.querySelectorAll('[data-pairing]').forEach(b=>b.classList.toggle('active',b.dataset.pairing===model.pairingScreen));
     $('activeEmotion').textContent=names[model.expression]||'Обычный';
-    $('pairingLabel').textContent='Экран: '+({face:'глаза',wifi:'Wi-Fi QR',portal:'QR панели'}[model.pairingScreen]||'глаза');
+    $('pairingLabel').textContent='Режим: '+({face:'глаза',mouse:'Bluetooth-мышь',wifi:'Wi-Fi QR',portal:'QR панели'}[model.deviceMode]||'глаза');
     $('faceTag').textContent=(model.expression||'neutral').toUpperCase();
   }
   async function poll() {if(demo)return;const res=await request('/api/status');if(res.ok){applyStatus(res.body);} }
@@ -173,15 +196,41 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
     if(res.ok){model.expression=expression;model.manualRemainingMs=8000;applyStatus(model);notify('Эмоция: '+(names[expression]||expression)+' · 8 секунд');}
     else notify(res.body.message||'Не удалось изменить эмоцию');
   }));
+  document.querySelectorAll('[data-mode]').forEach(btn=>btn.addEventListener('click',async()=>{
+    const mode=btn.dataset.mode;
+    const res=await request('/api/mode',{mode});
+    if(res.ok){model.deviceMode=mode;model.pairingScreen=(mode==='mouse'?'face':mode);
+      model.mouseMode=mode==='mouse';model.mouseConnected=demo&&mode==='mouse';
+      model.mouseCalibrated=demo&&mode==='mouse';applyStatus(model);notify('Режим: '+mode);}
+    else notify(res.body.error||res.body.message||'Не удалось изменить режим');
+  }));
   document.querySelectorAll('[data-pairing]').forEach(btn=>btn.addEventListener('click',async()=>{
     const mode=btn.dataset.pairing;const res=await request('/api/pairing',{mode});
-    if(res.ok){model.pairingScreen=mode;applyStatus(model);notify('Экран изменён');}
+    if(res.ok){model.pairingScreen=mode;model.deviceMode=mode;model.mouseMode=false;applyStatus(model);notify('Экран изменён');}
     else notify(res.body.message||'Ошибка переключения QR');
   }));
   for(const id of ['idleMotion','tiltEnabled']) $(id).addEventListener('change',async e=>{
     const value=e.target.checked;const res=await request('/api/settings',{key:id,value:value?'1':'0'});
     if(res.ok){model[id]=value;notify('Настройка сохранена');}else{e.target.checked=!value;notify(res.body.message||'Не удалось сохранить настройку');}
   });
+  $('blinkEnabled').addEventListener('change',async e=>{
+    const next=e.target.checked;
+    const res=await request('/api/appearance',{key:'blink',value:next?'1':'0'});
+    if(res.ok){model.blinkEnabled=next;notify('Моргание '+(next?'включено':'выключено'));}
+    else{e.target.checked=!next;notify(res.body.error||'Ошибка сохранения');}
+  });
+  for(const key of ['eyeBrightness','gazeActivity']){
+    const input=$(key),out=$(key+'Value');
+    input.addEventListener('input',()=>{out.textContent=input.value+'%';});
+    input.addEventListener('change',async()=>{
+      const value=Number(input.value);
+      if(value<20||value>100||!Number.isInteger(value)){input.value=model[key];return;}
+      const res=await request('/api/appearance',{key:key==='eyeBrightness'?'brightness':'gazeActivity',value:String(value)});
+      if(res.ok){model[key]=value;notify('Настройка сохранена');}
+      else{input.value=model[key];notify(res.body.error||'Ошибка сохранения');}
+      out.textContent=input.value+'%';
+    });
+  }
   $('powerSaver').addEventListener('change',async e=>{
     const next=e.target.checked;
     const res=await request('/api/power/saver',{enabled:next?'1':'0'});
@@ -222,7 +271,7 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
     const next=!model.mouseMode;
     const res=await request('/api/mouse/mode',{enabled:next?'1':'0'});
     if(res.ok){model.mouseMode=next;model.mouseConnected=demo?next:false;model.imuReady=demo?next:model.imuReady;
-      model.mouseCalibrated=demo?next:false;applyMouseStatus();notify(next?'Mouse Mode включён · ищи Stach Mouse в Bluetooth':'Возврат в режим глаз');}
+      model.mouseCalibrated=demo?next:false;model.deviceMode=next?'mouse':'face';model.pairingScreen='face';applyStatus(model);notify(next?'Mouse Mode включён · ищи Stach Mouse в Bluetooth':'Возврат в режим глаз');}
     else notify(res.body.error||res.body.message||'Не удалось переключить режим');
   });
   $('mouseCalibrateBtn').addEventListener('click',async()=>{
@@ -300,7 +349,8 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
   let start=performance.now();
   function draw(now) {
     const t=(now-start)/1000;const em=names[model.expression]?model.expression:'neutral';const screen=$('screen');
-    screen.className='screen '+em+(model.chargingKnown&&model.charging?' charging':'');
+    screen.className='screen '+em+(model.chargingKnown&&model.charging?' charging':'')+(model.deviceMode!=='face'?' mode-other':'');
+    $('eyes').style.filter='brightness('+clamp(Number(model.eyeBrightness)/100,.2,1)+')';
     let look=0;
     if(model.idleMotion && Math.abs(localX)<.001 && Math.abs(localY)<.001) {
       const phase=t%8;
@@ -313,11 +363,11 @@ static const char page[] PROGMEM = R"STACHWEB(<!doctype html>
       else if(phase>=5.2&&phase<6.2)look=.20;
       else if(phase>=6.2&&phase<6.7)look=.20*(1-ease((phase-6.2)/.5));
     }
-    const x=clamp(look+localX,-1,1),y=localY;
+    const x=clamp(look*clamp(Number(model.gazeActivity)/100,.2,1)+localX,-1,1),y=localY;
     const size=screen.clientWidth/466;
     $('eyes').style.transform=`translate(${x*18*size}px,${y*10*size}px)`;
     let openness=em==='sleepy'?.43:em==='angry'?.75:em==='happy'?.72:1;
-    const blinkPhase=t%5.7;if(blinkPhase>5.54)openness*=Math.max(.08,Math.abs(blinkPhase-5.62)/.08);
+    const blinkPhase=t%5.7;if(model.blinkEnabled&&blinkPhase>5.54)openness*=Math.max(.08,Math.abs(blinkPhase-5.62)/.08);
     $('leftEye').style.transform=`scale(${1+x*.17},${(1+x*.17)*openness})`;
     $('rightEye').style.transform=`scale(${1-x*.17},${(1-x*.17)*openness})`;
     $('leftPupil').style.transform=`translate(${x*15*size}px,${y*10*size}px)`;

@@ -14,6 +14,18 @@ with sync_playwright() as p:
         page.wait_for_timeout(300)
         assert 'Демо без устройства' in page.locator('#connectionText').inner_text()
         assert not page.locator('#screen .brow.left').evaluate('(el) => getComputedStyle(el).opacity')=='1'
+        page.locator('[data-mode="mouse"]').click()
+        assert page.locator('[data-mode="mouse"]').get_attribute('class').find('active')>=0
+        page.wait_for_function("document.getElementById('screen').classList.contains('mode-other')")
+        page.locator('[data-mode="portal"]').click()
+        assert page.locator('#pairingLabel').inner_text().endswith('QR панели')
+        page.locator('[data-mode="face"]').click()
+        page.wait_for_function("!document.getElementById('screen').classList.contains('mode-other')")
+        page.locator('#blinkEnabled').evaluate('(el)=>el.click()')
+        assert not page.locator('#blinkEnabled').is_checked()
+        for name,val in [('eyeBrightness','45'),('gazeActivity','60')]:
+            page.locator('#'+name).evaluate('(el,val)=>{el.value=val;el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}))}',val)
+            assert page.locator('#'+name+'Value').inner_text()==val+'%'
         page.locator('[data-emotion="angry"]').click()
         page.wait_for_function("document.getElementById('screen').classList.contains('angry')")
         page.locator('[data-pairing="wifi"]').click()
@@ -38,6 +50,8 @@ with sync_playwright() as p:
         page.mouse.up();assert page.locator('#knob').evaluate('(el) => parseFloat(el.style.left)')==50
         if size[0]<500:
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1'), 'Horizontal overflow mobile'
+        page.set_content(html, wait_until='load') # screenshot clean default Face, not last tested mode
+        page.wait_for_timeout(180)
         path=root/'preview'/f'panel-{size[0]}px.png'
         page.screenshot(path=str(path),full_page=True)
         assert not failures,failures

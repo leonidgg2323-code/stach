@@ -7,9 +7,10 @@ struct Controller {
   face::State from{};
   uint32_t since=0,duration=360;
   bool transitioning=false, charging=false;
+  bool blinkEnabled=true;
   static float mix(float a,float b,float t){return a+(b-a)*t;}
   face::State sample(uint32_t now) const {
-    face::State to=face::evaluate(now,current);
+    face::State to=face::evaluate(now,current,blinkEnabled);
     to.chargeStrength=charging?1.f:0.f;
     if(!transitioning)return to;
     float t=face::ease(face::clamp(float(uint32_t(now-since))/float(duration),0,1));

@@ -36,3 +36,6 @@ c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/mouse_test.cpp -o .build/mou
 
 c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/power_test.cpp -o .build/power_test
 .build/power_test
+
+c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/modes_test.cpp -o .build/modes_test
+.build/modes_test

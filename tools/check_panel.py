@@ -20,10 +20,13 @@ for item in ['app','connection','connectionText','screen','eyes','leftEye','righ
              'imu','gesture','clients','toast','pairingLabel','emotionButtons','faceTag','activeEmotion',
              'mousePanel','mouseModeBtn','mouseStatus','mouseLed','mousePad','mousePointer','mouseCalibrateBtn',
              'mouseSensitivity','mouseSensitivityValue','mouseInvertX','mouseInvertY','mouseAxisYX',
-             'mouseLeftBtn','mouseRightBtn','mouseScrollUp','mouseScrollDown']:
+             'mouseLeftBtn','mouseRightBtn','mouseScrollUp','mouseScrollDown',
+             'modesPanel','modePreview','blinkEnabled','eyeBrightness','eyeBrightnessValue',
+             'gazeActivity','gazeActivityValue']:
     assert item in e.ids, f'Missing control: {item}'
 assert set(d.get('data-emotion') for _,d in e.attrs if 'data-emotion' in d)=={'neutral','angry','sleepy','curious','happy'}
 assert set(d.get('data-pairing') for _,d in e.attrs if 'data-pairing' in d)=={'face','wifi','portal'}
+assert set(d.get('data-mode') for _,d in e.attrs if 'data-mode' in d)=={'face','mouse','wifi','portal'}
 assert '<script>' in html and '</script>' in html
 js = html.split('<script>',1)[1].split('</script>',1)[0]
 with tempfile.NamedTemporaryFile(suffix='.js',mode='w',encoding='utf-8') as f:
@@ -32,7 +35,7 @@ with tempfile.NamedTemporaryFile(suffix='.js',mode='w',encoding='utf-8') as f:
 main=(root/'src/main.cpp').read_text(encoding='utf-8')
 for endpoint in ['/api/status','/api/expression','/api/pairing','/api/gaze','/api/settings',
                  '/api/mouse/mode','/api/mouse/calibrate','/api/mouse/config','/api/mouse/click',
-                 '/api/mouse/scroll','/api/mouse/move']:
+                 '/api/mouse/scroll','/api/mouse/move','/api/mode','/api/appearance']:
     assert endpoint in html and endpoint in main, f'API contract mismatch: {endpoint}'
 assert 'stach::web::page' in main
 assert 'remoteGaze.apply(frame,now)' in main
@@ -41,4 +44,4 @@ assert 'chargingKnown' in html and 'batteryKnown' in html
 assert 'surprised' not in html.lower()
 assert 'glow' not in html.lower() and 'filter:blur' not in html.lower()
 assert 'https://' not in html and 'http://' not in html, 'Panel must not load external resources'
-print(f'Stage-7 web checks: {len(e.ids)} unique IDs; {len(js)} JS chars, no syntax/API mismatch')
+print(f'Stage-10 web checks: {len(e.ids)} unique IDs; {len(js)} JS chars, no syntax/API mismatch')

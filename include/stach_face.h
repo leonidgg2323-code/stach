@@ -29,7 +29,7 @@ inline float interpolate(float t,float t0,float t1,float from,float to){
 
 // Motion has a reason: idle -> brief anticipation -> glance -> hold -> return.
 // This does NOT change emotion spontaneously.
-inline State evaluate(uint32_t ms, Emotion emotion){
+inline State evaluate(uint32_t ms, Emotion emotion, bool allowBlink=true){
   State s;
   const float t=fmodf(float(ms)/1000.0f,8.0f);
   float direction=0, position=0, anticipation=0;
@@ -49,7 +49,7 @@ inline State evaluate(uint32_t ms, Emotion emotion){
 
   // A small purposeful blink after returning to centre.
   float blink=fabsf(t-6.92f);
-  if(blink<.095f) s.openness=clamp(blink/.095f,.12f,1);
+  if(allowBlink && blink<.095f) s.openness=clamp(blink/.095f,.12f,1);
   switch(emotion){
     case Emotion::Neutral: break;
     case Emotion::Angry:
