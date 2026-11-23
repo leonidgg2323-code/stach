@@ -27,6 +27,7 @@
 #include "stach_mouse_ui.h"
 #include "stach_power_hal.h"
 #include "stach_power_ui.h"
+#include "stach_hw_report.h"
 #endif
 
 static WebServer server(80);
@@ -97,6 +98,9 @@ static stach::touch::Gesture lastGesture=stach::touch::Gesture::None;
 static uint32_t lastGestureAt=0;
 #ifdef STACH_WAVESHARE_BOARD
 static bool faceDisplayReady = false;
+static stach::hwreport::Report bootHardwareReport;
+static uint32_t hardwareTestUntilMs=0;
+static bool hardwareTestVisible=false;
 static bool wasScreenDark=false;
 static stach::ble::Adapter hidMouse;
 static bool mouseScreenShown=false;
@@ -196,7 +200,8 @@ void setup() {
   saver.activity(millis());
 #ifdef STACH_WAVESHARE_BOARD
   // Non-destructive hardware diagnostics: does not toggle AMOLED power/reset.
-  stach::hardware::logProbe(stach::hardware::probe());
+  const stach::hardware::Probe bootProbe=stach::hardware::probe();
+  stach::hardware::logProbe(bootProbe);
   const bool displayReady = stach::display::begin();
   Serial.printf("[HW] AMOLED init: %s\n", displayReady ? "OK" : "FAILED");
   faceDisplayReady = displayReady;
@@ -205,6 +210,24 @@ void setup() {
   stach::power::beginHardware();
   touchReady=touchDriver.begin();
   Serial.printf("[TOUCH] FT3168/FT6146 0x38: %s\n",touchReady?"OK":"not available");
+  stach::hwreport::Evidence evidence;
+  evidence.flashBytes=ESP.getFlashChipSize();
+  evidence.psramBytes=ESP.getPsramSize();
+  evidence.i2cBus=bootProbe.i2c;
+  evidence.touchAck=bootProbe.touch;
+  evidence.imuAck=bootProbe.imu;
+  evidence.rtcAck=bootProbe.rtc;
+  evidence.displayBegin=faceDisplayReady;
+  evidence.touchBegin=touchReady;
+  evidence.imuBegin=imuReady;
+  bootHardwareReport=stach::hwreport::evaluate(evidence);
+  Serial.printf("[HWSELFTEST] flash=%lu psram=%lu i2c=%u display=%u touch=%u imu=%u rtc=%u warnings=0x%03X basicDrivers=%s\n",
+    (unsigned long)evidence.flashBytes,(unsigned long)evidence.psramBytes,
+    (unsigned)evidence.i2cBus,(unsigned)evidence.displayBegin,
+    (unsigned)evidence.touchBegin,(unsigned)evidence.imuBegin,
+    (unsigned)evidence.rtcAck,(unsigned)bootHardwareReport.warnings,
+    bootHardwareReport.basicDriversReady?"OK":"CHECK");
+  Serial.println("[HWSELFTEST] Send D via USB serial for a 5-second display pattern; I repeats the summary.");
 #endif
   if (!preferences.begin("stach", false)) {Serial.println("NVS unavailable"); return;}
   batteryMeter.configure(preferences.getFloat("batRatio",0.0f));
@@ -250,6 +273,34 @@ void setup() {
     if(!guardRequest(false))return;
     // Same-origin read only. A random token expires on every reboot.
     server.send(200,"application/json",String("{\"token\":\"")+sessionToken+"\"}");
+  });
+  // On-device boot self-test snapshot. This is not a claim of physical validation.
+  // No Wi-Fi password, BLE pairing key or session token is exposed here.
+  server.on("/api/hardware", HTTP_GET, [](){
+    if(!guardRequest(false))return;
+#ifdef STACH_WAVESHARE_BOARD
+#if defined(STACH_PANEL_CO5300)
+    const char* panelProfile="CO5300";
+#else
+    const char* panelProfile="SH8601";
+#endif
+    const auto& e=bootHardwareReport.evidence;
+    String body=String("{\"supported\":true,\"hardwareValidated\":false,\"panelProfile\":\"") + panelProfile +
+      "\",\"flashBytes\":"+String(e.flashBytes)+
+      ",\"psramBytes\":"+String(e.psramBytes)+
+      ",\"i2cBus\":"+(e.i2cBus?"true":"false")+
+      ",\"touchI2CAck\":"+(e.touchAck?"true":"false")+
+      ",\"imuI2CAck\":"+(e.imuAck?"true":"false")+
+      ",\"rtcI2CAck\":"+(e.rtcAck?"true":"false")+
+      ",\"displayBegin\":"+(e.displayBegin?"true":"false")+
+      ",\"touchBegin\":"+(e.touchBegin?"true":"false")+
+      ",\"imuBegin\":"+(e.imuBegin?"true":"false")+
+      ",\"basicDriversReady\":"+(bootHardwareReport.basicDriversReady?"true":"false")+
+      ",\"warningMask\":"+String(bootHardwareReport.warnings)+"}";
+    server.send(200,"application/json",body);
+#else
+    server.send(200,"application/json","{\"supported\":false,\"hardwareValidated\":false}");
+#endif
   });
   server.on("/api/health", HTTP_GET, [](){
     if(!guardRequest(false))return;
@@ -593,6 +644,28 @@ void loop() {
     }
   }
   const uint32_t tickMs=millis();
+#ifdef STACH_WAVESHARE_BOARD
+  // USB serial-only diagnostic commands. No unauthenticated HTTP mutation.
+  // The temporary pattern is ignored while Mouse Mode is active.
+  if(Serial.available()>0){
+    const int command=Serial.read();
+    if((command=='D' || command=='d') && faceDisplayReady && !airMouse.active()){
+      hardwareTestUntilMs=tickMs+5000;
+      hardwareTestVisible=false;
+      wasScreenDark=false; // ensure a previously sleeping screen can be cleaned up
+      saver.activity(tickMs);
+      Serial.println("[HWSELFTEST] Temporary AMOLED pattern requested (5 seconds)");
+    }else if(command=='I' || command=='i'){
+      const auto& e=bootHardwareReport.evidence;
+      Serial.printf("[HWSELFTEST] flash=%lu psram=%lu i2c=%u display=%u touch=%u imu=%u rtc=%u warnings=0x%03X basicDrivers=%s\n",
+        (unsigned long)e.flashBytes,(unsigned long)e.psramBytes,
+        (unsigned)e.i2cBus,(unsigned)e.displayBegin,
+        (unsigned)e.touchBegin,(unsigned)e.imuBegin,(unsigned)e.rtcAck,
+        (unsigned)bootHardwareReport.warnings,
+        bootHardwareReport.basicDriversReady?"OK":"CHECK");
+    }
+  }
+#endif
   pairing.tick(tickMs);
   const uint64_t uptimeMs=uint64_t(esp_timer_get_time())/1000ULL;
 #ifdef STACH_WAVESHARE_BOARD
@@ -657,6 +730,20 @@ void loop() {
   static uint32_t lastFrame=0;
   const uint32_t now=millis();
   if(faceDisplayReady) {
+    // An explicit diagnostic pattern has priority over normal face/QR screens.
+    // It does NOT imply that the physical panel passed visual inspection.
+    if(int32_t(hardwareTestUntilMs-now)>0 && !airMouse.active()) {
+      if(!hardwareTestVisible){
+        stach::display::diagnosticPattern();
+        hardwareTestVisible=true;
+      }
+    }else{
+    if(hardwareTestVisible){
+      hardwareTestVisible=false;
+      drawnScreen=stach::pairing::Screen::Portal;
+      mouseScreenShown=false;
+      lastFrame=0;
+    }
     if(saver.current==stach::power::ScreenMode::Dark) {
       if(!wasScreenDark){stach::display::panel()->fillScreen(0);wasScreenDark=true;}
     } else {
@@ -693,6 +780,7 @@ void loop() {
       }
     }
     }
+    } // end normal display rendering vs diagnostic pattern
   }
 #endif
   delay(2);

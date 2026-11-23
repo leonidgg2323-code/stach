@@ -42,3 +42,6 @@ c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/modes_test.cpp -o .build/mod
 
 c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/security_test.cpp -o .build/security_test
 .build/security_test
+
+c++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/hardware_report_test.cpp -o .build/hardware_report_test
+.build/hardware_report_test

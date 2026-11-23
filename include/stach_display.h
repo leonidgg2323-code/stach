@@ -37,6 +37,11 @@ inline void diagnosticPattern() {
   p->fillCircle(290,220,45,0xFFFF);
   p->fillCircle(175,220,20,0x0000);
   p->fillCircle(290,220,20,0x0000);
+  // Diagnostic RGB bars near the top: visible only on explicit USB command.
+  // Keeping this separate from the everyday black-and-white eye renderer.
+  p->fillRect(139,58,58,24,0xF800); // red
+  p->fillRect(204,58,58,24,0x07E0); // green
+  p->fillRect(269,58,58,24,0x001F); // blue
 }
 }}
 #endif

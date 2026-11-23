@@ -1,3 +1,13 @@
+# STACH — Stage 12: Firmware release candidate (NOT hardware-validated)
+
+**New:** pinned Waveshare 16MB Flash profiles and build dependencies; GitHub Actions downloads for firmware images (after push); SHA-256 manifest, automated release packaging tests, USB flashing instructions and hardware acceptance checklist. **No fake `.bin` files in source ZIP.**
+
+- [Release and artifact instructions](STAGE12-RELEASE.md)
+- [Real board tests / Windows flashing](STAGE12-HARDWARE-TESTS.md)
+- [Security limitations](STAGE11-SECURITY.md)
+
+---
+
 # STACH — Stage 11: Reliability & Security
 
 **Added:** per-boot same-origin token for all API POST commands, Host/Origin/Fetch-Site checks, strict HTTP guard on every route, bounded request sizes and per-client rate limit, Wi-Fi AP recovery attempts, memory-health endpoint, and automatic secure token handling in the mobile panel. All previous eye, QR, BLE mouse, battery and modes features are preserved.
@@ -93,3 +103,7 @@ On the network-only build, trying to enter Mouse Mode returns HTTP 503; other UI
 Independent Stach firmware concept inspired by the Pip-KeyPet genre. Core code developed for Stach; retains prior project attributions and no third-party BLE libraries are included verbatim. The patched BLE Mouse 0.3.1 is installed by PlatformIO and adapted by `tools/patch_ble_mouse.py`.
 
 Reference: <https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.43>
+
+## Дополнение: аппаратная диагностика отложенного этапа 2
+
+Новый модуль `include/stach_hw_report.h`, маршрут `GET /api/hardware`, стартовая запись `[HWSELFTEST]` и ручная USB-команда `D` добавляют диагностический снимок и пятисекундную проверку экрана. Подробности: `STAGE2-HARDWARE-DIAGNOSTICS.md`. Никакая программная проверка не заменяет тест настоящей Waveshare.

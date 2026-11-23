@@ -11,8 +11,12 @@ jobs:
         run: python3 tools/check_panel.py
       - name: Verify HTTP security guard coverage
         run: python3 tools/security_integration_check.py
+      - name: Verify on-device hardware diagnostics integration
+        run: python3 tools/hardware_integration_check.py
       - name: Test BLE compatibility adapter
         run: python3 tools/test_ble_patch.py
+      - name: Test release configuration and artifact packager
+        run: python3 -m unittest discover -s test -p 'release_test.py' -v
   firmware:
     runs-on: ubuntu-latest
     steps:
@@ -24,3 +28,12 @@ jobs:
         run: pip install platformio
       - name: Install dependencies, patch Arduino 3 BLE API and compile all profiles
         run: python3 tools/build_firmware.py
+      - name: Package three firmware profiles with SHA-256 manifests
+        run: python3 tools/package_firmware.py
+      - name: Upload compiled firmware files for download
+        uses: actions/upload-artifact@v4
+        with:
+          name: stach-firmware-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
