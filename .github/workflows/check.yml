@@ -13,6 +13,8 @@ jobs:
         run: python3 tools/security_integration_check.py
       - name: Verify on-device hardware diagnostics integration
         run: python3 tools/hardware_integration_check.py
+      - name: Verify temporary Waveshare bringup integration
+        run: python3 tools/test_bringup.py
       - name: Test BLE compatibility adapter
         run: python3 tools/test_ble_patch.py
       - name: Test release configuration and artifact packager
