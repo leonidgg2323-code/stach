@@ -6,6 +6,10 @@ STACH **Waveshare ESP32-S3-Touch-AMOLED-1.75** کو جیب کے ساتھی می�
 
 ![STACH eye animation](preview/stach-smart-eyes.gif)
 
+**چارجنگ کی اینیمیشن**
+
+![چارجنگ کی اینیمیشن](preview/stach-charging.gif)
+
 ## Waveshare 1.75 پر انسٹال کریں۔
 
 ان ہدایات کا تجربہ ونڈوز پر `stach-eyes-175` PlatformIO ماحول کے ساتھ کیا گیا تھا۔ یہ راؤنڈ 466 × 466 CO5300 ڈسپلے، 16 MB فلیش، اور 8 MB PSRAM کے لیے `src/main.cpp` سے مکمل ایپلیکیشن بناتا ہے۔ چمکنے سے پہلے بورڈ یا اس کی پیکیجنگ پر موجود ماڈل کو چیک کریں۔ 1.43، 1.43B، اور 1.75C نظرثانی میں مختلف ہارڈ ویئر ہیں۔

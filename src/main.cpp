@@ -1001,8 +1001,12 @@ void loop() {
       }
 #endif
       remoteGaze.apply(frame,now);
+#ifdef STACH_EYES_175
+      frame.chargeStrength=0; // The 1.75 panel draws its own charging overlay.
+#endif
       stach::face::draw(surface,frame);
 #ifdef STACH_EYES_175
+      if(ui175::power.valid && ui175::power.charging) ui175::drawCharging(now);
       ui175::batteryBar();
       if(now<8500) ui175::label("Hold: Wi-Fi   Swipe > Games",233,370,2,ui175::mint);
 #else

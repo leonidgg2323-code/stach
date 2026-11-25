@@ -6,6 +6,10 @@ STACH는 **Waveshare ESP32-S3-Touch-AMOLED-1.75** 를 주머니 속의 동반자
 
 ![STACH eye animation](preview/stach-smart-eyes.gif)
 
+**충전 애니메이션**
+
+![충전 애니메이션](preview/stach-charging.gif)
+
 ## Waveshare 1.75에 설치
 
 이 지침은 `stach-eyes-175` PlatformIO 환경을 사용하는 Windows에서 테스트되었습니다. 이는 라운드 466 × 466 CO5300 디스플레이, 16MB 플래시 및 8MB PSRAM 를 위해 `src/main.cpp` 에서 전체 애플리케이션을 구축합니다. 플래싱하기 전에 보드나 포장에 있는 모델을 확인하십시오. 1.43, 1.43B 및 1.75C 개정판에는 하드웨어가 다릅니다.

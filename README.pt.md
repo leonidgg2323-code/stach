@@ -6,6 +6,10 @@ STACH transforma um **Waveshare ESP32-S3-Touch-AMOLED-1.75** em um companheiro d
 
 ![STACH eye animation](preview/stach-smart-eyes.gif)
 
+**Animação de carregamento**
+
+![Animação de carregamento](preview/stach-charging.gif)
+
 ## Instale em um Waveshare 1.75
 
 Estas instruções foram testadas no Windows com o ambiente `stach-eyes-175` PlatformIO. Ele constrói o aplicativo completo do `src/main.cpp` para a tela redonda 466 × 466 CO5300, 16 MB de flash e 8 MB de PSRAM. Verifique o modelo na placa ou na embalagem antes de piscar. As revisões 1.43, 1.43B e 1.75C possuem hardware diferente.

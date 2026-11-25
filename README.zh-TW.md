@@ -6,6 +6,10 @@ STACH 將 **Waveshare ESP32-S3-Touch-AMOLED-1.75** 變成袖珍伴侶。它的�
 
 ![STACH 眼睛動畫](preview/stach-smart-eyes.gif)
 
+**充電動畫**
+
+![充電動畫](preview/stach-charging.gif)
+
 ## 在 Waveshare 1.75 上安裝
 
 這些指令在 Windows 上使用 `stach-eyes-175` PlatformIO 環境進行了測試。它從 `src/main.cpp` 構建完整的應用程式，用於圓形 466 × 466 CO5300 顯示屏、16 MB 快閃記憶體和 8 MB PSRAM。刷機前請檢查開發板或其包裝上的型號。 1.43、1.43B 和 1.75C 修訂版具有不同的硬體。

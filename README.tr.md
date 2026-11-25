@@ -6,6 +6,10 @@ STAC, **Waveshare ESP32-S3-Touch-AMOLED-1.75** 'yi cep arkadaşına dönüştür
 
 ![STACH eye animation](preview/stach-smart-eyes.gif)
 
+**Şarj animasyonu**
+
+![Şarj animasyonu](preview/stach-charging.gif)
+
 ## Waveshare 1.75'e yükleyin
 
 Bu talimatlar Windows'ta `stach-eyes-175` PlatformIO ortamıyla test edilmiştir. Yuvarlak 466 × 466 CO5300 ekran, 16 MB flash ve 8 MB PSRAM için `src/main.cpp` 'den tam uygulamayı oluşturur. Yanıp sönmeden önce karttaki modeli veya ambalajını kontrol edin. 1.43, 1.43B ve 1.75C revizyonları farklı donanımlara sahiptir.

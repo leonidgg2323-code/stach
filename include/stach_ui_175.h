@@ -85,6 +85,30 @@ void drawSplash(uint32_t age) {
   display::flush();
 }
 
+// Two comet trails share one orbit, leaving the eyes and battery readout clear.
+void drawCharging(uint32_t now) {
+  auto *g = display::panel();
+  constexpr int radius = 213;
+  constexpr uint32_t period = 3600;
+  static constexpr uint16_t aqua[] = {0x0125, 0x0208, 0x032d, 0x0471, 0x05b6, 0x2ef9, 0x8ffc, 0xdfff};
+  static constexpr uint16_t lilac[] = {0x1805, 0x2809, 0x480f, 0x6194, 0x8318, 0xa49b, 0xc63e, 0xef3f};
+  const float angle = (now % period) * (6.2831853f / period);
+  g->drawCircle(center, center, radius, 0x0924);
+  for (int i = 0; i < 24; ++i) {
+    const float a = angle - (23 - i) * 0.025f;
+    const int x = lroundf(radius * cosf(a)), y = lroundf(radius * sinf(a));
+    const int size = 1 + i / 6;
+    g->fillCircle(center + x, center + y, size, aqua[i / 3]);
+    g->fillCircle(center - x, center - y, size, lilac[i / 3]);
+  }
+
+  const int pulse = int(2.5f * (1.f + cosf(angle * 2.f)));
+  g->fillCircle(center, 335, 15 + pulse, 0x0926);
+  g->fillCircle(center, 335, 13, 0x124a);
+  g->fillTriangle(236, 324, 225, 337, 234, 337, 0xbfff);
+  g->fillTriangle(241, 332, 232, 332, 229, 346, 0xbfff);
+}
+
 int score, roundNumber, targetX, targetY, a, b, choices[2], correct;
 uint32_t gameAt;
 bool finished;
