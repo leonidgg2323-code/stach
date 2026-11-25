@@ -1,6 +1,6 @@
 # STACH
 
-[Русский](README.md) · **English**
+[Русский](README.md) · **English** · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [Español](README.es.md) · [हिन्दी](README.hi.md) · [العربية](README.ar.md) · [Français](README.fr.md) · [বাংলা](README.bn.md) · [Português](README.pt.md) · [Bahasa Indonesia](README.id.md) · [اردو](README.ur.md) · [Deutsch](README.de.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · [Italiano](README.it.md) · [فارسی](README.fa.md) · [Polski](README.pl.md) · [Українська](README.uk.md)
 
 STACH turns a **Waveshare ESP32-S3-Touch-AMOLED-1.75** into a pocket companion. Its eyes follow your finger and respond to tilt. Swipe right to play games, or use your phone to change its expression, brightness, behavior, and display name. The board hosts its own Wi-Fi network and control panel.
 

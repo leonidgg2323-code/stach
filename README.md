@@ -1,6 +1,6 @@
 # STACH
 
-**Русский** · [English](README.en.md)
+**Русский** · [English](README.en.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [Español](README.es.md) · [हिन्दी](README.hi.md) · [العربية](README.ar.md) · [Français](README.fr.md) · [বাংলা](README.bn.md) · [Português](README.pt.md) · [Bahasa Indonesia](README.id.md) · [اردو](README.ur.md) · [Deutsch](README.de.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · [Italiano](README.it.md) · [فارسی](README.fa.md) · [Polski](README.pl.md) · [Українська](README.uk.md)
 
 STACH превращает круглую плату **Waveshare ESP32-S3-Touch-AMOLED-1.75** в карманного персонажа. Глаза реагируют на касание и наклон, свайп вправо открывает игры, а с телефона можно менять выражение лица, яркость, поведение и имя устройства. Панель управления работает в локальной Wi-Fi сети самой платы.
 
