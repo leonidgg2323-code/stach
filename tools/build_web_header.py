@@ -8,4 +8,10 @@ out = root / 'include/stach_web.h'
 out.write_text('#pragma once\n// Generated from web/stach-panel.html. Run python3 tools/build_web_header.py after edits.\n'
                'namespace stach { namespace web {\nstatic const char page[] PROGMEM = R"STACHWEB('
                + html + ')STACHWEB";\n}} // namespace stach::web\n', encoding='utf-8')
+# A binary gzip representation for browsers, alongside the plain HTML fallback.
+import gzip
+compressed=gzip.compress(html.encode('utf-8'), compresslevel=9, mtime=0)
+rows=[','.join(f'0x{byte:02x}' for byte in compressed[i:i+32]) for i in range(0,len(compressed),32)]
+with out.open('a',encoding='utf-8') as header:
+    header.write('namespace stach { namespace web { static const uint8_t compressedPage[] PROGMEM = {\n'+',\n'.join(rows)+'\n}; }}\n')
 print(f'STACH panel: {len(html.encode("utf-8"))} UTF-8 bytes; embedded header written')

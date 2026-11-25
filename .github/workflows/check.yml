@@ -30,7 +30,7 @@ jobs:
         run: pip install platformio
       - name: Install dependencies, patch Arduino 3 BLE API and compile all profiles
         run: python3 tools/build_firmware.py
-      - name: Package three firmware profiles with SHA-256 manifests
+      - name: Package firmware profiles with SHA-256 manifests
         run: python3 tools/package_firmware.py
       - name: Upload compiled firmware files for download
         uses: actions/upload-artifact@v4

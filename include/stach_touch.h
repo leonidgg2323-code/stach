@@ -47,7 +47,7 @@ class Recognizer {
 public:
   bool pressed()const{return pressed_;}
   void cancel(){pressed_=false;longSent_=false;pendingTap_=false;}
-  Event feed(const Point& p,uint32_t now){
+  Event feed(const Point& p,uint32_t now,bool deferSingleTap=true){
     if(p.down){
       // A second press after the double-tap window must not eat the first tap.
       const bool expired=pendingTap_ && uint32_t(now-pendingAt_)>350;
@@ -78,6 +78,7 @@ public:
         return {g,lastX_,lastY_};
       }
       if(elapsed<=350 && dist2(lastX_,lastY_,startX_,startY_)<=22*22){
+        if(!deferSingleTap){pendingTap_=false;return {Gesture::Tap,lastX_,lastY_};}
         if(pendingTap_ && uint32_t(now-pendingAt_)<=350 &&
            dist2(startX_,startY_,tapX_,tapY_)<=65*65){
           pendingTap_=false;

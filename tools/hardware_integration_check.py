@@ -12,7 +12,8 @@ assert 'bootHardwareReport=stach::hwreport::evaluate(evidence);' in main
 assert 'stach::display::diagnosticPattern();' in main
 assert 'hardwareTestUntilMs=tickMs+5000' in main
 assert 'wasScreenDark=false; // ensure a previously sleeping screen can be cleaned up' in main
-assert 'if(int32_t(hardwareTestUntilMs-now)>0 && !airMouse.active())' in main
+assert 'showDiagnostic=hardwareTestUntilMs && int32_t(hardwareTestUntilMs-now)>0' in main
+assert 'if(showDiagnostic && !airMouse.active())' in main
 assert 'FLASH_EXPECTED_BYTES = 16u * 1024u * 1024u' in report
 assert 'r.basicDriversReady = (r.warnings & CRITICAL) == 0;' in report
 print('Stage-2 hardware diagnostics routes and guards: OK')

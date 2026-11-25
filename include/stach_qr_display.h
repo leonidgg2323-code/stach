@@ -9,7 +9,7 @@
 namespace stach { namespace pairing {
 // Renders only when pairing screen changes; never scans or regenerates QR each frame.
 // ricmoo/QRCode uses an exact version and ECC; no heap frame buffer required.
-inline bool renderCode(const char* text, Screen screen) {
+inline bool renderCode(const char* text, Screen screen, bool onboarding=false) {
   if (!text || !*text) return false;
   constexpr uint8_t kVersion = Layout::version;
   // V7/M byte capacity is 122. The longest Stach credentials payload is much shorter.
@@ -37,14 +37,18 @@ inline bool renderCode(const char* text, Screen screen) {
     }
   }
   d->setTextColor(0xffff, 0x0000);
+  const bool wifi=screen==Screen::Wifi;
+  const char* title=onboarding ? (wifi?"1/2  JOIN WI-FI":"2/2  REGISTER") : (wifi?"JOIN WI-FI":"CONTROL PANEL");
   d->setTextSize(2);
-  d->setCursor(196, 60);
-  d->print("STACH");
+  d->setCursor((Layout::panelWidth-int(strlen(title))*12)/2,65);
+  d->print(title);
+  const char* hint="SCAN WITH PHONE";
+  d->setCursor((Layout::panelWidth-int(strlen(hint))*12)/2,378);
+  d->print(hint);
   d->setTextSize(1);
-  d->setCursor(screen == Screen::Wifi ? 177 : 168, 382);
-  d->print(screen == Screen::Wifi ? "JOIN STACH WI-FI" : "OPEN CONTROL PANEL");
-  d->setCursor(154, 402);
-  d->print("TAP FOR NEXT CODE");
+  const char* nav=wifi?"TAP FOR NEXT CODE":"TAP FOR WI-FI CODE";
+  d->setCursor((Layout::panelWidth-int(strlen(nav))*6)/2,405);
+  d->print(nav);
   return true;
 }
 inline void renderFailure() {

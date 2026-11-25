@@ -12,7 +12,9 @@ for handler in handlers:
     rest=main[handler.end():handler.end()+180]
     expected='if(!guardRequest(true))return;' if method=='POST' else 'if(!guardRequest(false))return;'
     assert expected in rest, f'unprotected route: {method} {path}'
-assert 'server.collectHeaders(collectedHeaders,3)' in main
+assert 'server.collectHeaders(collectedHeaders,sizeof(collectedHeaders)/sizeof(collectedHeaders[0]))' in main
+assert 'if(!owner::authorized(server))' in main
+assert 'if(!guardEnvelope())return;' in main
 assert '"X-Stach-Token"' in main and '"Origin"' in main and '"Sec-Fetch-Site"' in main
 assert 'stach::security::equalToken(sessionToken,server.header("X-Stach-Token").c_str())' in main
 assert 'stach::security::allowedHost(server.hostHeader().c_str())' in main

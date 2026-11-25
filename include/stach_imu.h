@@ -1,5 +1,5 @@
 #pragma once
-#ifdef STACH_WAVESHARE_BOARD
+#if defined(STACH_WAVESHARE_BOARD) || defined(STACH_EYES_175)
 #include <Arduino.h>
 #include <Wire.h>
 #include <math.h>

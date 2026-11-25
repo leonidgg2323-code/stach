@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-PROFILES = ["stach-network-prototype", "stach-waveshare-sh8601", "stach-waveshare-co5300", "stach-waveshare-bringup"]
+PROFILES = ["stach-network-prototype", "stach-waveshare-sh8601", "stach-waveshare-co5300", "stach-waveshare-bringup", "stach-eyes-175"]
 
 
 def main() -> None:
@@ -27,7 +27,7 @@ def main() -> None:
     build = ["pio", "run"]
     for profile in PROFILES:
         build += ["-e", profile]
-    print("[STACH] Building all three firmware profiles", flush=True)
+    print("[STACH] Building configured firmware profiles", flush=True)
     subprocess.run(build, cwd=ROOT, check=True)
 
 

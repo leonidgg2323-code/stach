@@ -2,3 +2,8 @@
 .build/
 .vscode/
 .DS_Store
+.venv/
+__pycache__/
+*.pyc
+stach-factory-backup.bin
+*.flash-backup.bin

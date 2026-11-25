@@ -30,7 +30,7 @@ class ReleaseTests(unittest.TestCase):
             self.assertFalse(manifest['hardware_validated'])
             self.assertEqual(manifest['release'], '12.0.0-rc2')
             checksum_lines = (root / 'dist/SHA256SUMS.txt').read_text().splitlines()
-            self.assertEqual(len(checksum_lines), 9)
+            self.assertEqual(len(checksum_lines), len(MODULE.PROFILES) * len(MODULE.REQUIRED_IMAGES))
             for profile, images in manifest['profiles'].items():
                 for name, item in images.items():
                     path = root / 'dist' / profile / name

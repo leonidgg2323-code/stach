@@ -28,6 +28,16 @@
 #include "stach_power_hal.h"
 #include "stach_power_ui.h"
 #include "stach_hw_report.h"
+#ifdef STACH_EYES_175
+#include "stach_ui_175.h"
+#include "stach_owner.h"
+#include "stach_owner_page.h"
+namespace owner=stach::owner;
+namespace ui175 = stach::ui175;
+static uint32_t fingerAt;
+static bool hasFinger;
+static float fingerX, fingerY;
+#endif
 #endif
 
 static WebServer server(80);
@@ -61,7 +71,7 @@ static uint32_t remoteAddress(){
   IPAddress ip=server.client().remoteIP();
   return uint32_t(ip[0]) | uint32_t(ip[1])<<8 | uint32_t(ip[2])<<16 | uint32_t(ip[3])<<24;
 }
-static bool guardRequest(bool modifying) {
+static bool guardEnvelope() {
   securityHeaders();
   if (!stach::security::allowedHost(server.hostHeader().c_str()) ||
       !stach::security::allowedOrigin(server.header("Origin").c_str()) ||
@@ -71,12 +81,26 @@ static bool guardRequest(bool modifying) {
   if(server.clientContentLength()>512 || server.args()>8 || server.uri().length()>120){
     server.send(413,"application/json","{\"error\":\"Request too large\"}");return false;
   }
-  if(modifying && !stach::security::equalToken(sessionToken,server.header("X-Stach-Token").c_str())){
-    server.send(403,"application/json","{\"error\":\"Session token missing or expired; reload the page\"}");return false;
-  }
   if(!requestRate.allow(remoteAddress(),millis())){
     server.sendHeader("Retry-After","1");
     server.send(429,"application/json","{\"error\":\"Too many requests\"}");return false;
+  }
+  return true;
+}
+static bool guardRequest(bool modifying) {
+  if(!guardEnvelope())return false;
+#ifdef STACH_EYES_175
+  if(!owner::authorized(server)) {
+    if(server.method()==HTTP_GET && server.uri()=="/") {
+      String page=FPSTR(owner::loginPage);
+      page.replace("__SIGNUP__",owner::claimed?"false":"true");
+      server.send(200,"text/html; charset=utf-8",page);
+    } else server.send(401,"application/json","{\"error\":\"Owner login required\"}");
+    return false;
+  }
+#endif
+  if(modifying && !stach::security::equalToken(sessionToken,server.header("X-Stach-Token").c_str())){
+    server.send(403,"application/json","{\"error\":\"Session token missing or expired; reload the page\"}");return false;
   }
   return true;
 }
@@ -105,6 +129,7 @@ static bool wasScreenDark=false;
 static stach::ble::Adapter hidMouse;
 static bool mouseScreenShown=false;
 static uint32_t lastMouseScreen=0;
+static bool pairingNeedsRedraw=true;
 static stach::pairing::Screen drawnScreen = stach::pairing::Screen::Portal;
 static stach::imu::Driver imu;
 static bool imuReady=false;
@@ -160,6 +185,9 @@ static bool switchMode(stach::modes::Mode next,uint32_t now) {
   if(!plan.accepted)return false;
   if(plan.disableMouse && !setMouseMode(false,now))return false;
   if(plan.enableMouse && !setMouseMode(true,now))return false;
+#ifdef STACH_EYES_175
+  ui175::screen=ui175::Screen::Face;
+#endif
   pairing.show(plan.screen,now);
   if(next!=stach::modes::Mode::Mouse)remoteGaze.clear();
   saver.activity(now);
@@ -199,17 +227,30 @@ void setup() {
   behavior.begin(uint64_t(esp_timer_get_time())/1000ULL);
   saver.activity(millis());
 #ifdef STACH_WAVESHARE_BOARD
-  // Non-destructive hardware diagnostics: does not toggle AMOLED power/reset.
+  // Waveshare factory initializes the AMOLED power/driver before the touch
+  // and I2C peripheral setup. The previous STACH firmware probed I2C first,
+  // which could report false missing peripherals while their power was gated.
+  // This correction does NOT prove that the panel accepted graphics commands.
+  const bool displayReady = stach::display::begin();
+  faceDisplayReady = displayReady;
+#ifdef STACH_EYES_175
+  ui175::splashAt=millis();
+  if(displayReady) ui175::drawSplash(0);
+#endif
+  Serial.printf("[HW] AMOLED init: %s (software only)\n", displayReady ? "OK" : "FAILED");
+#ifndef STACH_EYES_175
+  delay(120); // 1.43 power-enable rail settling time
+#endif
   const stach::hardware::Probe bootProbe=stach::hardware::probe();
   stach::hardware::logProbe(bootProbe);
-  const bool displayReady = stach::display::begin();
-  Serial.printf("[HW] AMOLED init: %s\n", displayReady ? "OK" : "FAILED");
-  faceDisplayReady = displayReady;
+#ifndef STACH_EYES_175
+  stach::hardware::scanI2C();
+#endif
   imuReady=imu.begin();
   Serial.printf("[IMU] Accelerometer+gyro: %s\n",imuReady?"OK":"not available");
   stach::power::beginHardware();
   touchReady=touchDriver.begin();
-  Serial.printf("[TOUCH] FT3168/FT6146 0x38: %s\n",touchReady?"OK":"not available");
+  Serial.printf("[TOUCH] driver: %s\n",touchReady?"OK":"not available");
   stach::hwreport::Evidence evidence;
   evidence.flashBytes=ESP.getFlashChipSize();
   evidence.psramBytes=ESP.getPsramSize();
@@ -232,7 +273,13 @@ void setup() {
   if (!preferences.begin("stach", false)) {Serial.println("NVS unavailable"); return;}
   batteryMeter.configure(preferences.getFloat("batRatio",0.0f));
   saver.enabled = preferences.getBool("psaver",true);
-  settings.idleMotion = preferences.getBool("idle", true);
+  settings.idleMotion = preferences.getBool("idle",
+#ifdef STACH_EYES_175
+    false
+#else
+    true
+#endif
+  );
   settings.tiltEnabled = preferences.getBool("tilt", true);
   appearance.brightness=preferences.getUChar("eyeBright",100);
   appearance.gazeActivity=preferences.getUChar("eyeMotion",100);
@@ -267,8 +314,37 @@ void setup() {
   const String address = String("http://") + WiFi.softAPIP().toString() + "/";
   if (address.length() >= sizeof(portalUrl)) {Serial.println("Portal URL too long"); return;}
   address.toCharArray(portalUrl,sizeof(portalUrl));
-  const char* collectedHeaders[]={"Origin","Sec-Fetch-Site","X-Stach-Token"};
-  server.collectHeaders(collectedHeaders,3);
+  const char* collectedHeaders[]={"Origin","Sec-Fetch-Site","X-Stach-Token","Cookie","X-Stach-Account","Accept-Encoding"};
+  server.collectHeaders(collectedHeaders,sizeof(collectedHeaders)/sizeof(collectedHeaders[0]));
+#ifdef STACH_EYES_175
+  owner::begin(preferences);
+  ui175::loadRecords(preferences);
+  if(!owner::claimed) pairing.show(stach::pairing::Screen::Wifi,millis());
+  auto accountPost=[](bool signup) {
+    if(!guardEnvelope())return;
+    if(server.header("X-Stach-Account")!="1"){
+      server.send(403,"text/plain","Missing account request header");return;
+    }
+    const bool wasClaimed=owner::claimed;
+    owner::authenticate(server,preferences,signup);
+    if(signup && !wasClaimed && owner::claimed) switchMode(stach::modes::Mode::Face,millis());
+  };
+  server.on("/account/register",HTTP_POST,[accountPost](){accountPost(true);});
+  server.on("/account/login",HTTP_POST,[accountPost](){accountPost(false);});
+  server.on("/api/logout",HTTP_POST,[](){
+    if(!guardRequest(true))return;
+    owner::logout(server);
+    server.send(200,"application/json","{}");
+  });
+  server.on("/api/name",HTTP_POST,[](){
+    if(!guardRequest(true))return;
+    String name=server.arg("name"); name.trim();
+    if(!owner::validName(name)){server.send(400,"text/plain","Invalid name");return;}
+    if(preferences.putString("displayName",name)!=name.length()){server.send(500,"text/plain","Save failed");return;}
+    owner::deviceName=name;
+    server.send(200,"application/json","{}");
+  });
+#endif
   server.on("/api/session", HTTP_GET, [](){
     if(!guardRequest(false))return;
     // Same-origin read only. A random token expires on every reboot.
@@ -279,7 +355,7 @@ void setup() {
   server.on("/api/hardware", HTTP_GET, [](){
     if(!guardRequest(false))return;
 #ifdef STACH_WAVESHARE_BOARD
-#if defined(STACH_PANEL_CO5300)
+#if defined(STACH_PANEL_CO5300) || defined(STACH_CANVAS_CO5300)
     const char* panelProfile="CO5300";
 #else
     const char* panelProfile="SH8601";
@@ -312,13 +388,36 @@ void setup() {
     server.send(200,"application/json",body);
   });
   server.on("/", HTTP_GET, [](){
-    if(!guardRequest(false))return;server.sendHeader("Cache-Control","no-store");server.send_P(200,"text/html; charset=utf-8",stach::web::page);});
+    if(!guardRequest(false))return;
+    String encodings=server.header("Accept-Encoding");
+    encodings.toLowerCase();
+    int start=0;
+    while(start<(int)encodings.length()) {
+      int end=encodings.indexOf(',',start);
+      if(end<0) end=encodings.length();
+      String coding=encodings.substring(start,end);
+      coding.trim();
+      if(coding=="gzip") {
+        server.sendHeader("Content-Encoding","gzip");
+        server.send_P(200,"text/html; charset=utf-8",reinterpret_cast<const char*>(stach::web::compressedPage),sizeof(stach::web::compressedPage));
+        return;
+      }
+      start=end+1;
+    }
+    server.send_P(200,"text/html; charset=utf-8",stach::web::page);
+  });
   server.on("/api/status", HTTP_GET, [](){
     if(!guardRequest(false))return;
     const uint32_t now=millis();
     const uint64_t uptime=uint64_t(esp_timer_get_time())/1000ULL;
     const uint32_t remain=manualUntil>uptime?uint32_t(manualUntil-uptime):0;
-    String body = String("{\"name\":\"Stach\",\"expression\":\"") + stach::emotionName(character.current) +
+    String body = String("{\"name\":\"") +
+#ifdef STACH_EYES_175
+      owner::deviceName + "\",\"ownerAccount\":true,\"ownerLogin\":\"" + owner::stored.login +
+#else
+      "Stach" +
+#endif
+      "\",\"expression\":\"" + stach::emotionName(character.current) +
       "\",\"ip\":\"" + WiFi.softAPIP().toString() + "\",\"ssid\":\"" + ssid +
       "\",\"pairingScreen\":\"" + stach::pairing::name(pairing.screen) +
       "\",\"deviceMode\":\"" + stach::modes::name(currentMode()) +
@@ -326,8 +425,11 @@ void setup() {
       ",\"charging\":" + (behavior.charging?"true":"false") +
       ",\"batteryKnown\":" + (behavior.batteryKnown?"true":"false") +
       ",\"batteryPercent\":" + (behavior.batteryKnown?String(behavior.batteryPercent):String("null")) +
+#ifdef STACH_EYES_175
+      ",\"batterySource\":\"AXP2101\",\"batteryPresent\":" + (ui175::power.valid?(ui175::power.battery?"true":"false"):"null") +
+#endif
       ",\"batteryAdcMv\":" + (batteryMeter.adcMilliVolts>0?String(batteryMeter.adcMilliVolts):String("null")) +
-      ",\"batteryMv\":" + (batteryMeter.known()?String(batteryMeter.batteryMilliVolts):String("null")) +
+      ",\"batteryMv\":" + (batteryMeter.batteryMilliVolts>0?String(batteryMeter.batteryMilliVolts):String("null")) +
       ",\"batteryCalibrated\":" + (stach::power::validRatio(batteryMeter.ratio)?"true":"false") +
       ",\"powerSaver\":" + (saver.enabled?"true":"false") +
       ",\"eyeBrightness\":" + String(appearance.brightness) +
@@ -517,7 +619,9 @@ void setup() {
   // that BAT_ADC tracks the real lithium CELL on the exact board revision.
   server.on("/api/power/calibrate", HTTP_POST, [](){
     if(!guardRequest(true))return;
-#ifdef STACH_WAVESHARE_BOARD
+#ifdef STACH_EYES_175
+    server.send(409,"text/plain","AXP2101 provides battery telemetry directly");
+#elif defined(STACH_WAVESHARE_BOARD)
     const String value=server.arg("cellMv");
     if(value.length()<4 || value.length()>4){server.send(400,"application/json","{\"error\":\"Invalid measured voltage\"}");return;}
     for(unsigned i=0;i<value.length();++i)if(value[i]<'0'||value[i]>'9'){
@@ -625,6 +729,7 @@ void setup() {
 #endif
   });
   server.onNotFound([](){if(!guardRequest(false))return;server.send(404,"text/plain","Not found");});
+  server.enableDelay(false); // loop() already yields between requests
   server.begin();
   initialized = true;
   Serial.println("Stach AP: " + ssid);
@@ -655,7 +760,17 @@ void loop() {
       wasScreenDark=false; // ensure a previously sleeping screen can be cleaned up
       saver.activity(tickMs);
       Serial.println("[HWSELFTEST] Temporary AMOLED pattern requested (5 seconds)");
+    }else if(command=='S' || command=='s'){
+      stach::hardware::scanI2C();
     }else if(command=='I' || command=='i'){
+#ifdef STACH_EYES_175
+      Serial.printf("[STACH 1.75] app=%u ap=%u ssid=%s ip=%s mode=%s power=%u usb=%u battery=%u percent=%d\n",
+        initialized,apHealthy,ssid.c_str(),WiFi.softAPIP().toString().c_str(),stach::modes::name(currentMode()),
+        ui175::power.valid,ui175::power.usb,ui175::power.battery,ui175::power.percent);
+#endif
+#ifdef STACH_EYES_175
+      Serial.printf("[OWNER] state=%s storage=%u screen=%s\n",owner::claimed?"registered":"setup",owner::storageOK,stach::pairing::name(pairing.screen));
+#endif
       const auto& e=bootHardwareReport.evidence;
       Serial.printf("[HWSELFTEST] flash=%lu psram=%lu i2c=%u display=%u touch=%u imu=%u rtc=%u warnings=0x%03X basicDrivers=%s\n",
         (unsigned long)e.flashBytes,(unsigned long)e.psramBytes,
@@ -666,9 +781,35 @@ void loop() {
     }
   }
 #endif
+#ifdef STACH_EYES_175
+  if(owner::claimed)
+#endif
   pairing.tick(tickMs);
   const uint64_t uptimeMs=uint64_t(esp_timer_get_time())/1000ULL;
 #ifdef STACH_WAVESHARE_BOARD
+#ifdef STACH_EYES_175
+  if(tickMs-ui175::lastPower>=500) {
+    ui175::lastPower=tickMs;
+    ui175::readPower(tickMs);
+    if(!owner::claimed) {
+      static bool hadClient=false;
+      const bool connected=WiFi.softAPgetStationNum()>0;
+      if(connected && !hadClient && pairing.screen==stach::pairing::Screen::Wifi)
+        pairing.show(stach::pairing::Screen::Portal,tickMs);
+      hadClient=connected;
+    }
+    behavior.battery(ui175::power.percent);
+    batteryMeter.batteryMilliVolts=ui175::power.millivolts;
+    behavior.charge(ui175::power.valid,ui175::power.charging,uptimeMs);
+    if(ui175::splash) saver.activity(tickMs);
+  }
+  if(ui175::splash && tickMs-ui175::splashAt>=ui175::splashDuration) {
+    ui175::splash=false;
+    pairingNeedsRedraw=true;
+    drawnScreen=stach::pairing::Screen::Face;
+    mouseScreenShown=false;
+  }
+#else
   static uint32_t lastBatteryPoll=0;
   if(uint32_t(tickMs-lastBatteryPoll)>=4000){
     lastBatteryPoll=tickMs;
@@ -678,6 +819,7 @@ void loop() {
     const bool chargingKnown=stach::power::readCharging(charging);
     behavior.charge(chargingKnown,charging,uptimeMs);
   }
+#endif
   airMouse.link(hidMouse.connected(),tickMs);
   static uint64_t lastImuMs=0;
   if(imuReady && uptimeMs-lastImuMs>=20){
@@ -692,17 +834,36 @@ void loop() {
     }
   }
   static uint32_t lastTouchPoll=0;
-  if(touchReady && uint32_t(tickMs-lastTouchPoll)>=20){
+  if(touchReady && uint32_t(tickMs-lastTouchPoll)>=5){
     lastTouchPoll=tickMs;
     stach::touch::Point point;
     if(touchDriver.read(point)){
       if(point.down && !touchRecognizer.pressed())saver.activity(tickMs);
+#ifdef STACH_EYES_175
+      if(point.down && !airMouse.active() && pairing.screen==stach::pairing::Screen::Face && ui175::screen==ui175::Screen::Face) {
+        // Present the first contact immediately; keep drag updates frame-paced.
+        if(!touchRecognizer.pressed()) pairingNeedsRedraw=true;
+        fingerAt=tickMs;
+        hasFinger=true;
+        fingerX=constrain((point.x-233)/195.f,-1.f,1.f);
+        fingerY=constrain((point.y-233)/195.f,-1.f,1.f);
+      }
+#endif
       lastTouchValidAt=tickMs;
-      const stach::touch::Event event=touchRecognizer.feed(point,tickMs);
+      const stach::touch::Event event=touchRecognizer.feed(point,tickMs
+#ifdef STACH_EYES_175
+        ,ui175::screen==ui175::Screen::Face
+#endif
+      );
       if(event.kind!=stach::touch::Gesture::None){
         lastGesture=event.kind;lastGestureAt=tickMs;
         if(airMouse.active()) {
           mouseGesture(event.kind,tickMs);
+#ifdef STACH_EYES_175
+        } else if(pairing.screen==stach::pairing::Screen::Face && ui175::gameGesture(event,tickMs)) {
+          saver.activity(tickMs);
+          hasFinger=false;
+#endif
         } else if(pairing.screen==stach::pairing::Screen::Face &&
                   event.kind==stach::touch::Gesture::SwipeUp) {
           switchMode(stach::modes::Mode::Mouse,tickMs); // deliberate gesture to enter Mouse Mode
@@ -724,45 +885,97 @@ void loop() {
     character.set(behavior.choose(uptimeMs),tickMs,behavior.showCharging());
   }
   character.tick(tickMs);
-  saver.tick(tickMs,airMouse.active() || behavior.showCharging() || pairing.screen!=stach::pairing::Screen::Face,
-             batteryMeter.known(),batteryMeter.batteryPercent);
+  saver.tick(tickMs,
+#ifdef STACH_EYES_175
+             ui175::screen!=ui175::Screen::Face ||
+#endif
+             airMouse.active() || behavior.showCharging() || pairing.screen!=stach::pairing::Screen::Face,
+             behavior.batteryKnown,behavior.batteryPercent);
 #ifdef STACH_WAVESHARE_BOARD
   static uint32_t lastFrame=0;
   const uint32_t now=millis();
   if(faceDisplayReady) {
     // An explicit diagnostic pattern has priority over normal face/QR screens.
     // It does NOT imply that the physical panel passed visual inspection.
-    if(int32_t(hardwareTestUntilMs-now)>0 && !airMouse.active()) {
+    const bool showDiagnostic=hardwareTestUntilMs && int32_t(hardwareTestUntilMs-now)>0;
+    if(!showDiagnostic) hardwareTestUntilMs=0;
+    if(hardwareTestVisible && (!showDiagnostic || airMouse.active())){
+      hardwareTestVisible=false;
+      hardwareTestUntilMs=0;
+      pairingNeedsRedraw=true;
+      drawnScreen=stach::pairing::Screen::Portal;
+      mouseScreenShown=false;
+      lastFrame=0;
+#ifdef STACH_EYES_175
+      ui175::gameDirty=true;
+#endif
+    }
+    if(showDiagnostic && !airMouse.active()) {
       if(!hardwareTestVisible){
         stach::display::diagnosticPattern();
         hardwareTestVisible=true;
       }
-    }else{
-    if(hardwareTestVisible){
-      hardwareTestVisible=false;
-      drawnScreen=stach::pairing::Screen::Portal;
-      mouseScreenShown=false;
-      lastFrame=0;
-    }
+    } else
+#ifdef STACH_EYES_175
+    if(ui175::splash) {
+      if(now-lastFrame>=50) {
+        lastFrame=now;
+        ui175::drawSplash(now-ui175::splashAt);
+      }
+    } else if(ui175::screen!=ui175::Screen::Face && !airMouse.active() && pairing.screen==stach::pairing::Screen::Face) {
+      if(ui175::gameNeedsRedraw(now,preferences)) {
+        lastFrame=now;
+        ui175::drawGames(now);
+        ui175::batteryBar();
+        stach::display::flush();
+        pairingNeedsRedraw=true;
+      }
+    } else
+#endif
+    {
     if(saver.current==stach::power::ScreenMode::Dark) {
-      if(!wasScreenDark){stach::display::panel()->fillScreen(0);wasScreenDark=true;}
+      if(!wasScreenDark){stach::display::panel()->fillScreen(0);stach::display::flush();wasScreenDark=true;}
     } else {
-    if(wasScreenDark){wasScreenDark=false;drawnScreen=stach::pairing::Screen::Portal;lastFrame=0;}
+    if(wasScreenDark){wasScreenDark=false;pairingNeedsRedraw=true;drawnScreen=stach::pairing::Screen::Portal;lastFrame=0;}
     if(airMouse.active()) {
       if(!mouseScreenShown || uint32_t(now-lastMouseScreen)>=500) {
         lastMouseScreen=now;
         mouseScreenShown=true;
         stach::mouse_ui::draw(airMouse,hidMouse.started(),imuReady);
+        stach::display::flush();
       }
     } else {
-      if(mouseScreenShown) { mouseScreenShown=false;drawnScreen=stach::pairing::Screen::Portal; }
+      if(mouseScreenShown) { pairingNeedsRedraw=true;mouseScreenShown=false;drawnScreen=stach::pairing::Screen::Portal; }
       if(pairing.screen != stach::pairing::Screen::Face) {
-      if(pairing.screen != drawnScreen) {
+      if(pairingNeedsRedraw || pairing.screen != drawnScreen) {
+        pairingNeedsRedraw=false;
         const char* contents = pairing.screen==stach::pairing::Screen::Wifi ? qrPayload : portalUrl;
-        if(!stach::pairing::renderCode(contents,pairing.screen)) stach::pairing::renderFailure();
+#ifdef STACH_EYES_175
+        char setupUrl[sizeof(portalUrl)+sizeof(owner::invitation)+7];
+        bool registering=pairing.screen==stach::pairing::Screen::Portal && !owner::claimed;
+        if(registering) {
+          snprintf(setupUrl,sizeof(setupUrl),"%s#claim=%s",portalUrl,owner::invitation);
+          contents=setupUrl;
+        }
+#endif
+        if(!stach::pairing::renderCode(contents,pairing.screen,
+#ifdef STACH_EYES_175
+                                       !owner::claimed
+#else
+                                       false
+#endif
+                                       )) stach::pairing::renderFailure();
         drawnScreen=pairing.screen;
+        stach::display::flush();
       }
-    } else if(drawnScreen != stach::pairing::Screen::Face || (uint32_t)(now-lastFrame)>=stach::power::Saver::framePeriod(saver.current)) {
+    } else if(pairingNeedsRedraw || drawnScreen != stach::pairing::Screen::Face || (uint32_t)(now-lastFrame)>=
+#ifdef STACH_EYES_175
+        (saver.current==stach::power::ScreenMode::Normal ? 32u : stach::power::Saver::framePeriod(saver.current))
+#else
+        stach::power::Saver::framePeriod(saver.current)
+#endif
+      ) {
+      pairingNeedsRedraw=false;
       lastFrame=now;
       drawnScreen=stach::pairing::Screen::Face;
       AmoledSurface surface;
@@ -774,14 +987,33 @@ void loop() {
       if (!settings.idleMotion) { frame.gazeX=0; frame.gazeY=0; frame.offsetX=0; frame.offsetY=0; }
       const stach::motion::Tilt neutralTilt;
       gestureGaze.apply(frame,now,settings.tiltEnabled?tilt:neutralTilt);
+#ifdef STACH_EYES_175
+      if(hasFinger) {
+        const uint32_t age=now-fingerAt;
+        if(age>=500) hasFinger=false;
+        else {
+          const float weight=1.f-stach::face::ease(stach::face::clamp((float(age)-250.f)/250.f,0.f,1.f));
+          frame.gazeX+=(fingerX-frame.gazeX)*weight;
+          frame.gazeY+=(fingerY-frame.gazeY)*weight;
+          frame.offsetX+=(17*fingerX-frame.offsetX)*weight;
+          frame.offsetY+=(10*fingerY-frame.offsetY)*weight;
+        }
+      }
+#endif
       remoteGaze.apply(frame,now);
       stach::face::draw(surface,frame);
+#ifdef STACH_EYES_175
+      ui175::batteryBar();
+      if(now<8500) ui175::label("Hold: Wi-Fi   Swipe > Games",233,370,2,ui175::mint);
+#else
       stach::power_ui::draw(batteryMeter,behavior.chargingKnown,behavior.charging);
+#endif
+      stach::display::flush();
       }
     }
     }
     } // end normal display rendering vs diagnostic pattern
   }
 #endif
-  delay(2);
+  delay(1);
 }

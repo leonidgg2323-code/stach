@@ -15,6 +15,7 @@ import shutil
 from datetime import datetime, timezone
 
 PROFILES = (
+    'stach-eyes-175',
     'stach-network-prototype',
     'stach-waveshare-sh8601',
     'stach-waveshare-co5300',

@@ -28,13 +28,14 @@ struct Settings {
 
 struct RemoteGaze {
   float x = 0.f, y = 0.f;
-  uint32_t since = 0;
+  uint32_t since = 0, firstCommand = 0;
   static constexpr uint32_t durationMs = 2400;
   bool enabled = false;
 
   bool set(float xNorm, float yNorm, uint32_t now) {
     if (!std::isfinite(xNorm) || !std::isfinite(yNorm) ||
         xNorm < -1.f || xNorm > 1.f || yNorm < -1.f || yNorm > 1.f) return false;
+    if(!active(now)) firstCommand=now;
     x = xNorm; y = yNorm; since = now; enabled = true;
     return true;
   }
@@ -45,7 +46,7 @@ struct RemoteGaze {
   void apply(stach::face::State& s, uint32_t now) const {
     if (!active(now)) return;
     const uint32_t age = static_cast<uint32_t>(now - since);
-    const float in = stach::face::ease(stach::face::clamp(float(age) / 180.f, 0.f, 1.f));
+    const float in = stach::face::ease(stach::face::clamp(float(uint32_t(now-firstCommand)) / 45.f, 0.f, 1.f));
     const float out = stach::face::ease(stach::face::clamp(float(durationMs - age) / 400.f, 0.f, 1.f));
     const float w = in * out;
     s.gazeX = s.gazeX * (1.f - w) + x * w;

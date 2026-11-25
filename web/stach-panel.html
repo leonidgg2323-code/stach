@@ -64,7 +64,7 @@
 <body>
 <div class="shell" id="app">
   <header>
-    <div class="brand"><div class="mark" aria-hidden="true"><i></i><b></b></div><div><h1>Stach</h1><small>CONTROL CENTER</small></div></div>
+    <div class="brand"><div class="mark" aria-hidden="true"><i></i><b></b></div><div><h1 id="deviceTitle">Stach</h1><small>CONTROL CENTER</small></div></div>
     <div id="connection" class="chip offline" aria-live="polite"><span class="dot"></span><span id="connectionText">Подключение…</span></div>
   </header>
   <div class="intro"><div class="eyebrow">Твой маленький компаньон</div><h2>Живой характер.<br>Твои правила.</h2><p class="sub">Эмоции, взгляд, подключение и настройки — в одном месте.</p></div>
@@ -124,6 +124,9 @@
           <div class="buttons" style="align-items:center"><input id="calibrationMv" type="number" min="3200" max="4250" step="1" placeholder="Например, 3900" style="background:#151920;border:1px solid #546075;border-radius:9px;padding:11px;color:white;max-width:168px"><button class="btn" id="calibrateBattery">Сохранить калибровку</button></div>
         </details>
       </div>
+      <section class="panel" id="ownerPanel" hidden><h3>Аккаунт владельца</h3>
+        <p class="sub" id="ownerLogin"></p><label for="deviceName">Имя устройства в панели</label>
+        <div class="buttons"><input id="deviceName" maxlength="24" placeholder="Stach"><button class="btn primary" id="saveName">Сохранить имя</button><button class="btn" id="ownerLogout">Выйти</button></div></section>
       <div class="panel"><div class="panel-head"><div><h3>Состояние устройства</h3><p class="sub">Действительные данные, без выдуманного заряда</p></div><span class="tag">LIVE</span></div>
         <div class="info-grid"><div class="info"><span>Wi-Fi</span><strong id="ssid">—</strong></div><div class="info"><span>Адрес</span><strong id="ip">—</strong></div><div class="info"><span>Батарея</span><strong id="battery">Не определена</strong></div><div class="info"><span>Зарядка</span><strong id="charging">Не определена</strong></div><div class="info"><span>Сенсор</span><strong id="touch">—</strong></div><div class="info"><span>Гироскоп</span><strong id="imu">—</strong></div><div class="info"><span>Последний жест</span><strong id="gesture">—</strong></div><div class="info"><span>Сеть / клиенты</span><strong id="clients">—</strong></div></div>
       </div>
@@ -139,7 +142,7 @@
   document.body.classList.toggle('demo', demo);
   const $ = id => document.getElementById(id);
   const names = {neutral:'Обычный',angry:'Злой',sleepy:'Сонный',curious:'Любопытный',happy:'Радостный'};
-  const model = {expression:'neutral',pairingScreen:'face',deviceMode:'face',chargingKnown:false,charging:false,batteryKnown:false,batteryPercent:null,
+  const model = {name:'Stach',ownerAccount:false,ownerLogin:'',batterySource:null,batteryPresent:null,expression:'neutral',pairingScreen:'face',deviceMode:'face',chargingKnown:false,charging:false,batteryKnown:false,batteryPercent:null,
     touchReady:false,imuReady:false,ssid:demo?'Stach-DEMO':'—',ip:demo?'192.168.4.1':'—',lastGesture:'none',clients:0,
     idleMotion:true,tiltEnabled:true,blinkEnabled:true,eyeBrightness:100,gazeActivity:100,powerSaver:true,screenMode:'normal',batteryAdcMv:null,batteryMv:null,batteryCalibrated:false,
     manualRemainingMs:0,mouseMode:false,mouseBleStarted:false,mouseConnected:false,
@@ -157,6 +160,7 @@
     if(controlToken)return controlToken;
     if(!tokenFlight)tokenFlight=fetch('/api/session',{cache:'no-store',credentials:'same-origin'})
       .then(async response=>{
+        if(response.status===401)location.replace('/');
         if(!response.ok)throw new Error('Cannot start secure session');
         const data=await response.json();
         if(!/^[A-F0-9]{32}$/.test(data.token||''))throw new Error('Invalid session token');
@@ -172,6 +176,7 @@
       const modifying=params!==undefined;
       const headers=modifying?{'X-Stach-Token':await getControlToken()}:{};
       const response=await fetch(url,{method:modifying?'POST':'GET',headers,signal:abort.signal,cache:'no-store'});
+      if(response.status===401){location.replace('/');throw new Error('Session expired')}
       if(response.status===403)controlToken='';
       const raw=await response.text();let body={};try{body=JSON.parse(raw)}catch(_){body={message:raw}}
       setConnection(true);return {ok:response.ok,body,status:response.status};
@@ -181,11 +186,19 @@
   function applyStatus(s) {
     if(!s || typeof s!=='object')return;
     for(const key of Object.keys(model)) if(Object.prototype.hasOwnProperty.call(s,key) && s[key]!==undefined) model[key]=s[key];
+    $('deviceTitle').textContent=model.name;
+    $('ownerPanel').hidden=!model.ownerAccount;
+    $('ownerLogin').textContent='Вход выполнен как '+model.ownerLogin;
+    if(!$('deviceName').dataset.edited) $('deviceName').value=model.name;
     $('ssid').textContent=model.ssid||'—';$('ip').textContent=model.ip||'—';
     $('battery').textContent=model.batteryKnown&&Number.isFinite(Number(model.batteryPercent)) ? String(model.batteryPercent)+'%' : 'Не определена';
+    const pmic=model.batterySource==='AXP2101';
+    $('calibrateBattery').closest('details').hidden=pmic;
+    $('batteryAdcMv').closest('.info').hidden=pmic;
+    if(pmic && model.batteryPresent===false) $('battery').textContent='Аккумулятор не обнаружен';
     $('batteryPower').textContent=$('battery').textContent;
     $('batteryAdcMv').textContent=Number.isFinite(model.batteryAdcMv)?(model.batteryAdcMv+' мВ (АЦП)'):'—';
-    $('batteryMv').textContent=Number.isFinite(model.batteryMv)?(model.batteryMv+' мВ ≈'):'Нет калибровки';
+    $('batteryMv').textContent=Number.isFinite(model.batteryMv)?(model.batteryMv+(pmic?' мВ':' мВ ≈')):(pmic?'—':'Нет калибровки');
     $('screenMode').textContent=({normal:'Активный',eco:'Экономный',dark:'Экран погашен'}[model.screenMode]||'—');
     $('powerSaver').checked=!!model.powerSaver;
     $('charging').textContent=model.chargingKnown?(model.charging?'Заряжается':'Не заряжается'):'Не определена';
@@ -206,6 +219,15 @@
     $('pairingLabel').textContent='Режим: '+({face:'глаза',mouse:'Bluetooth-мышь',wifi:'Wi-Fi QR',portal:'QR панели'}[model.deviceMode]||'глаза');
     $('faceTag').textContent=(model.expression||'neutral').toUpperCase();
   }
+  $('deviceName').oninput=()=>{$('deviceName').dataset.edited='1'};
+  $('saveName').onclick=async()=>{
+    const name=$('deviceName').value.trim();
+    if(!/^[а-яёa-z0-9 _-]{1,24}$/iu.test(name)){notify('Введи до 24 букв, цифр, пробелов, дефисов или подчёркиваний');return;}
+    const r=await request('/api/name',{name});
+    if(r.ok){delete $('deviceName').dataset.edited;applyStatus({name});notify('Имя сохранено');}
+    else notify('Не удалось сохранить имя');
+  };
+  $('ownerLogout').onclick=async()=>{const r=await request('/api/logout',{});if(r.ok)location.replace('/');};
   async function poll() {if(demo)return;const res=await request('/api/status');if(res.ok){applyStatus(res.body);} }
   document.querySelectorAll('[data-emotion]').forEach(btn=>btn.addEventListener('click',async()=>{
     const expression=btn.dataset.emotion;const res=await request('/api/expression',{value:expression});
@@ -337,11 +359,23 @@
   function endMousePointer(e){if(activePointer!==e.pointerId)return;activePointer=null;marker.style.left='50%';marker.style.top='50%'}
   mp.addEventListener('pointerup',endMousePointer);mp.addEventListener('pointercancel',endMousePointer);
   const joy=$('joystick'),knob=$('knob');
-  async function sendGaze(x,y,force) {
-    const now=performance.now();if(!force&&now-lastSend<150)return;lastSend=now;
+  let pendingGaze=null,gazeBusy=false,gazeTimer=0;
+  function sendGaze(x,y,force) {
     if(demo)return;
-    const res=await request('/api/gaze',{x:x.toFixed(3),y:y.toFixed(3)});
-    if(!res.ok && res.status!==0)notify(res.body.message||'Ошибка управления взглядом');
+    pendingGaze={x,y,force};
+    clearTimeout(gazeTimer);
+    flushGaze();
+  }
+  async function flushGaze() {
+    if(gazeBusy||!pendingGaze)return;
+    const wait=70-(performance.now()-lastSend);
+    if(!pendingGaze.force && wait>0){gazeTimer=setTimeout(flushGaze,wait);return}
+    const {x,y}=pendingGaze;
+    pendingGaze=null;gazeBusy=true;lastSend=performance.now();
+    try{
+      const res=await request('/api/gaze',{x:x.toFixed(3),y:y.toFixed(3)});
+      if(!res.ok && res.status!==0)notify(res.body.message||'Ошибка управления взглядом');
+    }finally{gazeBusy=false;flushGaze()}
   }
   function joystickMove(event) {
     const rect=joy.getBoundingClientRect(),cx=rect.left+rect.width/2,cy=rect.top+rect.height/2;

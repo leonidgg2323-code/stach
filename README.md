@@ -1,109 +1,122 @@
-# STACH — Stage 12: Firmware release candidate (NOT hardware-validated)
+# STACH
 
-**New:** pinned Waveshare 16MB Flash profiles and build dependencies; GitHub Actions downloads for firmware images (after push); SHA-256 manifest, automated release packaging tests, USB flashing instructions and hardware acceptance checklist. **No fake `.bin` files in source ZIP.**
+STACH превращает круглую плату **Waveshare ESP32-S3-Touch-AMOLED-1.75** в карманного персонажа. Глаза реагируют на касание и наклон, свайп вправо открывает игры, а с телефона можно менять выражение лица, яркость, поведение и имя устройства. Панель управления работает в локальной Wi-Fi сети самой платы.
 
-- [Release and artifact instructions](STAGE12-RELEASE.md)
-- [Real board tests / Windows flashing](STAGE12-HARDWARE-TESTS.md)
-- [Security limitations](STAGE11-SECURITY.md)
+![Анимация глаз STACH](preview/stach-smart-eyes.gif)
 
----
+## Установка на Waveshare 1.75
 
-# STACH — Stage 11: Reliability & Security
+Инструкция проверена для Windows и профиля `stach-eyes-175`. Он собирает полное приложение из `src/main.cpp` для круглого дисплея CO5300 с разрешением 466 × 466, 16 МБ флеш-памяти и 8 МБ PSRAM. Перед прошивкой сверь обозначение модели на плате или упаковке. У ревизий 1.43, 1.43B и 1.75C другая аппаратная конфигурация.
 
-**Added:** per-boot same-origin token for all API POST commands, Host/Origin/Fetch-Site checks, strict HTTP guard on every route, bounded request sizes and per-client rate limit, Wi-Fi AP recovery attempts, memory-health endpoint, and automatic secure token handling in the mobile panel. All previous eye, QR, BLE mouse, battery and modes features are preserved.
+### 1. Подготовь компьютер
 
-**Full security notes and checklists:** [STAGE11-SECURITY.md](STAGE11-SECURITY.md). **Important:** HTTP is unencrypted, and the session token is an anti-CSRF control, not separate authentication for people who are already connected to Stach Wi-Fi.
+Понадобятся Python 3.13 с командой `py`, Git для Windows, доступ в интернет для первой сборки и USB-кабель с передачей данных. Установщики доступны на [сайте Python](https://www.python.org/downloads/windows/) и [сайте Git](https://git-scm.com/downloads/win).
 
-**Install:** unzip contents to your existing `stach` clone, then `Commit to main → Push origin` in GitHub Desktop. Check both `core` and `firmware` GitHub Actions jobs. An accepted build is *not* an on-device test.
+Открой PowerShell и скачай проект в новую папку. Для инструментов ESP32 лучше выбрать короткий путь с латинскими буквами.
 
----
+```powershell
+cd $env:USERPROFILE
+git clone https://github.com/leonidgg2323-code/stach.git stach-firmware
+cd stach-firmware
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install "platformio==6.2.0"
+```
 
-# STACH — Stage 10: Modes & Personalization
+Можно также скачать архив через **Code → Download ZIP**. Распакуй его, открой PowerShell в папке, где лежит `platformio.ini`, и выполни последние две команды. Активация виртуального окружения не требуется.
 
-**Based on the complete Stage 9 project.** Target board: Waveshare ESP32-S3 Touch AMOLED 1.43 / applicable 1.43B revision; separate 1.43C hardware is **not supported** by these pin profiles.
+### 2. Установи библиотеки и собери прошивку
 
-## New in Stage 10
+```powershell
+.\.venv\Scripts\python.exe -m platformio pkg install -e stach-eyes-175
+.\.venv\Scripts\python.exe -m platformio run -e stach-eyes-175
+```
 
-- **Centralized mode switching:** `face`, `mouse`, `wifi` QR, `portal` QR via `POST /api/mode?mode=...`, with exact name validation and guarded BLE hardware requirements. The mode is always derived from actual pairing + BLE mouse state, not duplicated state that could drift. QR expires after 90 s and returns to Face; mouse mode is **never automatically resumed at boot**, and reports are blocked whenever mouse mode is inactive. Existing touch gestures and previous `/api/pairing`/`/api/mouse/mode` API calls remain compatible.
-- **Eye brightness 20–100%:** validated percentage persisted in ESP32 Preferences (`eyeBright`). This controls **RGB565 eye pixel intensity**, NOT AMOLED controller brightness or hardware power use. The old anti-aliased, matte white oval design is preserved. The battery icon drawn above the eyes is not subject to this eye-only intensity setting.
-- **Autonomous gaze activity 20–100%:** validated persisted percentage (`eyeMotion`), scales spontaneous eye motions in the firmware while preserving the safe centered movement limits. Manual gaze control and sensor-based gestures remain responsive.
-- **Enable/disable blinking:** persisted boolean (`blink`) controls automatic blinks; emotion eyelid shapes remain. Neutral has NO eyebrows; eyebrows appear only in emotions; surprise remains removed.
-- **One consistent mobile UI:** new modes card, blink toggle, brightness and gaze activity sliders. Live status now includes `deviceMode`, `eyeBrightness`, `gazeActivity`, `blinkEnabled`. The original emotions, gesture controls, QR, BLE mouse, charger status and energy saver remain available.
-- **Strict persistence:** only appearance preferences are persisted, and invalid values are rejected with HTTP 400. A failed Preferences write returns HTTP 500 and does not update the running setting. Existing older settings remain backwards compatible.
+Первая сборка скачивает инструменты ESP32 и занимает несколько минут. Патч совместимости библиотеки Bluetooth-мыши применяется автоматически. Дождись строки `stach-eyes-175  SUCCESS`.
 
-## Modes and physical gestures
+### 3. Определи порт и прошей плату
 
-| Current action | Result |
+Подключи плату по USB и посмотри список портов.
+
+```powershell
+.\.venv\Scripts\python.exe -m platformio device list
+```
+
+Нужен порт, который появляется при подключении платы и исчезает при отключении. В примере ниже это `COM3`. Замени его на свой. Закрой программы, которые держат порт открытым, включая монитор порта Arduino IDE.
+
+**Загрузка заменит установленную на плате прошивку.** Если нужна возможность вернуть заводское меню, заранее сохрани полный образ за пределами репозитория. Для этой модели резервная копия всей флеш-памяти имеет размер **16 777 216 байт**. При желании сделай её до загрузки:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install "esptool>=5,<6"
+.\.venv\Scripts\python.exe -m esptool --chip esp32s3 --port COM3 read-flash 0 ALL "$env:USERPROFILE\stach-before-install.flash-backup.bin"
+```
+
+Выбери новое имя файла, если у тебя уже есть копия. Образ может содержать настройки и учётные данные устройства. Для установки STACH выполни:
+
+```powershell
+.\.venv\Scripts\python.exe -m platformio run -e stach-eyes-175 -t upload --upload-port COM3
+```
+
+После проверки контрольной суммы и сообщения `SUCCESS` плата перезагрузится. PlatformIO сам записывает загрузчик, таблицу разделов и приложение по нужным адресам. Файл `firmware.bin` в каталоге сборки содержит только приложение.
+
+### 4. Создай аккаунт владельца
+
+1. При первом запуске отсканируй телефоном код **1/2 JOIN WI-FI**. Подключись к сети вида `Stach-XXXXXX` и выбери «Оставаться подключённым», если телефон предупредит об отсутствии интернета.
+2. После подключения на дисплее появится **2/2 REGISTER**. Если виден первый код, коснись дисплея один раз. Отсканируй второй код тем же телефоном.
+3. Введи логин из 3–32 латинских букв, цифр, дефисов или подчёркиваний и пароль длиной от 12 символов. Сохрани данные для следующего входа. Аккаунт и настройки хранятся в памяти устройства.
+4. В разделе **«Аккаунт владельца»** можно изменить имя, показанное в панели, или выйти. Для повторного входа подключись к Wi-Fi устройства и открой [локальную панель STACH](http://192.168.4.1/).
+
+Регистрация доступна одному владельцу и требует одноразового кода с физического экрана. Для управляющих команд нужны сеанс владельца и токен защиты запросов. Панель использует HTTP внутри Wi-Fi сети устройства. После перезагрузки нужно снова войти.
+
+## Управление и игры
+
+| Действие | Что произойдёт |
 |---|---|
-| From Face, swipe up | Enter Bluetooth Mouse (real Waveshare profile only) |
-| From Face, long press | Wi-Fi pairing QR |
-| While QR screen open, tap | Toggle Wi-Fi QR / portal QR |
-| While QR screen open, long press | Back to Face |
-| While Mouse active, long press | Mouse off, back to Face |
-| From phone, choose Face / Mouse / QR | Atomic requested mode change |
-| Restart | Face mode, without unsolicited HID mouse commands |
+| Коснуться глаз или наклонить плату | Взгляд следует за пальцем или наклоном. |
+| Смахнуть вправо с экрана глаз | Откроется меню игр. |
+| Смахнуть влево в игре | Возврат в меню. Ещё один свайп возвращает глаза. |
+| Удерживать палец на глазах около секунды | Появится QR-код Wi-Fi. Касание переключает коды сети и панели, долгое нажатие возвращает глаза. |
+| Смахнуть вверх с экрана глаз | Включится Bluetooth-мышь. На компьютере выбери **Stach Mouse** и подержи плату неподвижно для калибровки. |
+| Коснуться экрана в режиме мыши | Одно касание — левый клик, двойное — правый. Свайп прокручивает, долгое нажатие выходит из режима. |
 
-On the network-only build, trying to enter Mouse Mode returns HTTP 503; other UI modes remain logical preview state but cannot draw to a physical device without compatible AMOLED hardware.
+**Targets** — попадай по мишеням за 20 секунд. В **Sums** нужно решить пять примеров. Обе игры показывают результат раунда и сохраняют лучший счёт. **Dice** бросает шестигранный кубик, **Coin** подбрасывает монету. Результат выбирает аппаратный генератор ESP32. Для нового броска коснись экрана после окончания анимации.
 
-## Validation
+## Экран и питание
 
-- `sh tools/test_core.sh` — portable host unit tests for Stach, including **792 new Stage-10 assertions** for mode parsing, all mode transitions, invalid inputs, gaze/brightness boundaries and blink gating.
-- `python3 tools/check_panel.py` — embedded HTML identity, DOM IDs, no external dependencies, JavaScript syntax and API contract.
-- `python3 tools/test_ble_patch.py` — Bluetooth Mouse patch compatibility tests.
-- `python3 tools/browser_smoke.py` — optional real Chromium smoke at 390 × 844 and 1280 × 900, controls plus screenshots.
-- A local mock-Arduino compiler check covers network-only, SH8601 and CO5300 `src/main.cpp` syntax. **Mocks do not prove real firmware compilation.**
-- `python3 tools/build_firmware.py` — full PlatformIO build for all three profiles, run by GitHub Actions on push. No physical board test was performed here.
+В панели есть ручной выбор эмоций, джойстик взгляда, переключатели моргания и реакции на наклон, яркость глаз и интенсивность самостоятельных движений. Настройки оформления сохраняются между запусками. Режим мыши включается явно после загрузки.
 
-## How to install
+На 1.75 процент заряда и состояние зарядки считываются с контроллера **AXP2101**. При питании от кабеля без обнаруженного аккумулятора индикатор показывает `USB`. В режиме экономии через 45 секунд покоя снижается частота обновления лица, через 5 минут экран гаснет. При известном заряде до 15% интервалы сокращаются до 10 секунд и 2 минут. Касание будит экран. Во время игры, показа QR-кода, работы мыши и активной зарядки дисплей остаётся включённым.
 
-1. Unzip **contents** of this archive into your cloned `stach` folder and replace project files. Do not nest a second `STACH-Stage-10-Modes` folder in your repo. Include hidden `.github` files.
-2. In GitHub Desktop: **Commit to main → Push origin**.
-3. Wait for the new `Stach core checks` workflow and inspect both green jobs. This verifies build/test compilation only, not hardware behavior.
-4. Open the HTML preview `preview/stach-panel.html` in a desktop browser to test appearance without the board.
-5. Real display/controller revision, touch behavior, BLE pairing and battery calibration remain scheduled for the final hardware integration stage.
+## Если что-то пошло не так
 
-## Existing Stage 9 power support
+| Симптом | Что проверить |
+|---|---|
+| В списке нет нового COM-порта | Попробуй кабель с передачей данных, другой USB-разъём и повтори `platformio device list`. |
+| Ошибка открытия порта или `Access denied` | Закрой монитор порта и проверь номер COM после переподключения. |
+| Сборка завершилась ошибкой | Проверь, что текущая папка содержит `platformio.ini`, и повтори обе команды из шага 2. |
+| Экран пуст | Сверь модель и имя профиля в журнале загрузки. Для 1.75 строка успешной сборки должна содержать `stach-eyes-175`. |
+| Телефон не открывает панель | Проверь, что телефон остался в сети `Stach-XXXXXX`. Введи именно `http://192.168.4.1/`. Для первой регистрации нужен второй QR-код. |
 
-**Target hardware:** Waveshare ESP32-S3-Touch-AMOLED-1.43 / compatible 1.43B configuration (SH8601 and CO5300 build profiles). **Not** the 1.43C variant; that is a different board. This is an extension of Stage 8, not a replacement.
+Для диагностики открой монитор со скоростью 115200:
 
-## New features
+```powershell
+.\.venv\Scripts\python.exe -m platformio device monitor -p COM3 -b 115200
+```
 
-1. Top-of-face battery icon drawn directly on the 466 × 466 AMOLED. Shows `?` when battery capacity cannot be trusted. After calibration, it shows an **approximate** percentage. The neutral eyes stay matte white with black pupils and no eyebrows, and gaze movement stays in the center.
-2. `BAT_ADC` GPIO4 readings using `analogReadMilliVolts` (5 samples, median, then exponential low-pass filter). The ADC voltage alone is **not** automatically classified as battery voltage or battery percentage. USB/system measurements must not be misrepresented as cell charge.
-3. User-driven calibration, optional and potentially unsafe if done with wrong assumptions: **only** after checking the specific revision's schematic and with a multimeter verifying that GPIO4 tracks the **cell voltage**, measure battery millivolts, use the web control panel's advanced calibration field, and save the ADC-to-cell factor in NVS. Any percent is merely a **voltage-based estimate**, NOT a fuel-gauge measurement or precise SoC reading. If uncertain, **do not calibrate**; `?` is the safe behavior.
-4. Power-saving policy, enabled by default: 10 Hz face updates initially, 2.5 Hz after 45 seconds with no real interaction, black AMOLED face after 5 minutes idle. With known charge ≤15%, these intervals shorten to 10 seconds and 2 minutes. Touch or a POST from the phone wakes the face. Mouse and QR screens remain awake, as does a verified active charging animation. BLE and Wi-Fi remain active; this is **not hardware deep sleep** and does not claim a measured battery-runtime improvement.
-5. New local API: `POST /api/power/saver?enabled=0|1`, `POST /api/power/wake`, `POST /api/power/calibrate?cellMv=3900`. `GET /api/status` now includes `batteryAdcMv`, `batteryMv`, `batteryCalibrated`, `screenMode`, and `powerSaver`. The web panel includes a new energy card, on-demand wake, optional manual calibration, live voltage indicators, and a battery percentage only when valid.
-6. Charging status is **UNKNOWN by default**, even when connected to a computer. Therefore no automatic cheerful charging reaction or green charging sweep is falsely activated. Hardware charging-status detection is optional via a verified `STACH_CHARGE_STATUS_PIN` build flag (active-low), NOT enabled on the default standard board. Never assign an arbitrary pin based on the charge LED. When a real charger status signal is later wired and verified, the existing charging emotion and animation activate automatically. The 'sleepy after a long time not charged' behavior is now gated on known charging status, so it will not activate solely because charging detection is missing.
-7. Previous controls, mouse, gestures, QR and eyes are retained.
+Отправь `I` для отчёта об инициализации оборудования, `S` для списка устройств I²C или `D` для пятисекундной проверки дисплея. Для выхода нажми **Ctrl+C**. Для восстановления своей полной копии на ту же плату закрой монитор, проверь размер образа и выполни команду ниже. Она перезапишет также настройки и аккаунт сохранёнными в образе данными.
 
-## Important limitations
+```powershell
+.\.venv\Scripts\python.exe -m esptool --chip esp32s3 --port COM3 write-flash 0x0 "$env:USERPROFILE\stach-before-install.flash-backup.bin"
+```
 
-- **No physical Waveshare or Li-ion battery was connected during this stage.** The battery divider source and exact charger pin must be validated on the specific hardware revision. The wiki lists `BAT_ADC` GPIO4 and a charge indicator but its ADC demo measures *system voltage (~4.9V when USB-powered)*. That demo does not establish precise lithium SoC.
-- No verified hardware AMOLED brightness command is implemented. The Stage-10 software eye intensity slider is separate from panel/controller backlight or power management; the generic Arduino_GFX pointer lacks `setBrightness`. The energy saver reduces redraws and shows black pixels; a real AMOLED standby command, BLE duty cycle optimization, RTC wake, power-rail changes, and battery calibration belong to final hardware integration. Display blacking alone must not be called deep sleep.
-- Charging, battery percentage and power consumption measurements **cannot be asserted as working on the board** without physical test.
-- The standard board's GPIO4 and I2C pin assignments are not suitable for the distinct 1.43C hardware variant.
+**Если возникла проблема, напиши в Discord — `twiinkprostolox123` или в Telegram — [@def0kk](https://t.me/def0kk).** Укажи модель платы, выбранный профиль и строку ошибки. Пароль, регистрационный QR-код и полный образ памяти оставь у себя.
 
-## Testing
+## Предыдущие этапы и разработка
 
-- `sh tools/test_core.sh` — all portable tests including Stage 9 battery interpolation, calibration rules, filtering and 32-bit time-wrap-safe saver policy.
-- `python3 tools/check_panel.py` — embedded web page and API names; `python3 tools/test_ble_patch.py` — BLE library compatibility patch tests.
-- `python3 tools/browser_smoke.py` — optional full Chromium UI smoke, screenshots at 390 × 844 and 1280 × 900 (requires installed Playwright and Chromium).
-- `python3 tools/build_firmware.py` — installs dependencies and builds network, SH8601 and CO5300 profiles under PlatformIO, including the Stage-8 BLE compatibility patch. GitHub Actions executes this on push.
-- An extra local `g++ -fsyntax-only` check was run for all three profiles using lightweight **mock Arduino APIs** (not a real ESP32 toolchain); these mocks are deliberately *not* shipped as production source.
+- **Этап 9 — питание.** На старых профилях 1.43 напряжение на GPIO4 измеряется через АЦП и сглаживается. Оценка заряда требует проверки схемы конкретной ревизии и калибровки по измеренному напряжению аккумулятора. Питание от USB само по себе не подтверждает зарядку. Для 1.75 используется отдельный драйвер AXP2101.
+- **Этап 10 — режимы и персонализация.** Режимы лица, Bluetooth-мыши, QR-кода сети и QR-кода панели переключаются с дисплея и через `POST /api/mode`. Яркость глаз и активность взгляда регулируются в диапазоне 20–100%. В сетевом прототипе управление BLE-мышью требует аппаратного профиля.
+- **Этап 11 — надёжность и безопасность.** В прошивке есть проверка источника HTTP-запросов, токен защиты команд, ограничение частоты запросов и восстановление точки доступа. На 1.75 дополнительно действует вход в локальный аккаунт. [Описание защит этапа 11](STAGE11-SECURITY.md)
+- **Этап 12 — сборки и диагностика.** GitHub Actions проверяет код и формирует архивы сборок с контрольными суммами. Отчёт `GET /api/hardware` показывает результаты программной инициализации. Практическая проверка экрана, касаний и сопряжения выполняется на плате. [Сборка и выпуск](STAGE12-RELEASE.md) · [Аппаратные проверки](STAGE12-HARDWARE-TESTS.md) · [Диагностика оборудования](STAGE2-HARDWARE-DIAGNOSTICS.md)
 
-## Install with GitHub Desktop
+Для разработки используются `src/main.cpp`, заголовки в `include/` и страница `web/stach-panel.html`. После изменения панели синхронизируй `preview/stach-panel.html` и выполни `python tools/build_web_header.py`. Проверка встроенной страницы и API запускается командой `python tools/check_panel.py` и требует Node.js. Переносимые тесты ядра запускаются в Linux командой `sh tools/test_core.sh`; проверка совместимости BLE — `python tools/test_ble_patch.py`.
 
-1. Unzip the **contents** of this archive into the existing local `stach` repository folder, replacing files. Keep the `.github` folder and all project directories.
-2. In GitHub Desktop select `Commit to main`, then `Push origin`.
-3. Watch the GitHub Actions `Stach core checks` run. Green tests and a full green firmware build confirm compilability, **not physical board function**.
-4. Device programming and battery/charger calibration remain in the final hardware-verification stage.
-
-## Credits
-
-Independent Stach firmware concept inspired by the Pip-KeyPet genre. Core code developed for Stach; retains prior project attributions and no third-party BLE libraries are included verbatim. The patched BLE Mouse 0.3.1 is installed by PlatformIO and adapted by `tools/patch_ble_mouse.py`.
-
-Reference: <https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.43>
-
-## Дополнение: аппаратная диагностика отложенного этапа 2
-
-Новый модуль `include/stach_hw_report.h`, маршрут `GET /api/hardware`, стартовая запись `[HWSELFTEST]` и ручная USB-команда `D` добавляют диагностический снимок и пятисекундную проверку экрана. Подробности: `STAGE2-HARDWARE-DIAGNOSTICS.md`. Никакая программная проверка не заменяет тест настоящей Waveshare.
+STACH — самостоятельный проект, вдохновлённый жанром Pip-KeyPet. PlatformIO устанавливает сторонние библиотеки, а адаптер проекта применяет патч для ESP32 BLE Mouse 0.3.1. [Материалы Waveshare для модели 1.75](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75) · [Справка по модели 1.43](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.43)
